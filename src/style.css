@@ -1,0 +1,206 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #000;
+}
+
+button {
+  font: inherit;
+  border: 0;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  color: #fff;
+}
+
+.short {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, #252525 0%, #101010 32%, #000 72%);
+}
+
+.top {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: calc(14px + env(safe-area-inset-top)) 18px 14px;
+  background: linear-gradient(#0009, transparent);
+}
+
+.top strong {
+  font-size: 17px;
+}
+
+.icon-button {
+  color: #fff;
+  background: #ffffff18;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  font-size: 25px;
+}
+
+.center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 30px;
+  text-align: center;
+}
+
+.play {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #000;
+  font-size: 25px;
+  padding-left: 4px;
+  margin-bottom: 20px;
+}
+
+.center h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.center p {
+  margin: 0 0 22px;
+  color: #bdbdbd;
+}
+
+.primary {
+  padding: 13px 20px;
+  border-radius: 999px;
+  background: #fff;
+  color: #000;
+  font-weight: 700;
+}
+
+.actions {
+  position: absolute;
+  z-index: 3;
+  right: 14px;
+  bottom: 112px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.actions button {
+  width: 52px;
+  min-height: 52px;
+  border-radius: 18px;
+  color: #fff;
+  background: #0008;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 25px;
+}
+
+.actions span {
+  font-size: 9px;
+  color: #ddd;
+}
+
+.caption {
+  position: absolute;
+  z-index: 3;
+  left: 16px;
+  right: 78px;
+  bottom: 108px;
+  text-shadow: 0 1px 5px #000;
+}
+
+.caption b {
+  font-size: 15px;
+}
+
+.caption p {
+  margin: 7px 0;
+  line-height: 1.35;
+}
+
+.caption small {
+  color: #ddd;
+}
+
+.bottom {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, #000);
+}
+
+.bottom button {
+  min-height: 54px;
+  color: #aaa;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 23px;
+}
+
+.bottom button span {
+  font-size: 9px;
+}
+
+.bottom .active {
+  color: #fff;
+}
+
+.bottom .create {
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  margin: 2px auto;
+  border-radius: 15px;
+  background: #fff;
+  color: #000;
+  font-size: 30px;
+}
+
+@media (min-width: 700px) {
+  .short {
+    border-left: 1px solid #222;
+    border-right: 1px solid #222;
+  }
+}
