@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Telegram Shorts</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;font-family:Arial,sans-serif}
+body{overflow:hidden}.app{height:100dvh;max-width:600px;margin:auto;position:relative;background:linear-gradient(#111,#050505)}
+.top{position:absolute;top:0;left:0;right:0;padding:18px 18px calc(18px + env(safe-area-inset-top));font-size:20px;font-weight:700;text-align:center;z-index:2}
+.center{height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:30px}
+.card{max-width:340px}.play{width:82px;height:82px;border-radius:50%;margin:0 auto 24px;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;font-size:34px}
+h1{font-size:28px;margin:0 0 12px}.desc{font-size:16px;line-height:1.45;color:#bbb}
+.start{margin-top:24px;border:0;border-radius:14px;padding:14px 24px;font-size:16px;font-weight:700;background:#fff;color:#111}
+.actions{position:absolute;right:14px;bottom:105px;display:flex;flex-direction:column;gap:18px}.action{font-size:26px;text-align:center}.action small{display:block;font-size:12px;color:#ddd;margin-top:3px}
+.caption{position:absolute;left:16px;right:80px;bottom:78px}.caption b{display:block;margin-bottom:7px}.caption span{color:#ccc;font-size:14px}
+.nav{position:absolute;left:0;right:0;bottom:0;padding:12px 8px calc(12px + env(safe-area-inset-bottom));display:flex;justify-content:space-around;background:rgba(0,0,0,.72);font-size:12px}.nav div{text-align:center}.nav i{display:block;font-style:normal;font-size:22px;margin-bottom:3px}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="top">Telegram Shorts</div>
+<div class="center"><div class="card"><div class="play">▶</div><h1>Короткие видео</h1><div class="desc">Добро пожаловать в Telegram Shorts — смотрите, публикуйте и открывайте новые видео прямо в Telegram.</div><button class="start" onclick="this.textContent='Скоро будет доступно'">Начать просмотр</button></div></div>
+<div class="actions"><div class="action">♡<small>Нравится</small></div><div class="action">💬<small>Комментарии</small></div><div class="action">↗<small>Поделиться</small></div><div class="action">◉<small>Профиль</small></div></div>
+<div class="caption"><b>@telegram_shorts</b><span>🎬 Первый экран Telegram Shorts #shorts #video</span></div>
+<div class="nav"><div><i>⌂</i>Главная</div><div><i>⌕</i>Поиск</div><div><i>＋</i>Создать</div><div><i>♡</i>Подписки</div><div><i>◉</i>Профиль</div></div>
+</div>
+<script>
+const tg=window.Telegram&&window.Telegram.WebApp;
+if(tg){tg.ready();tg.expand();}
+</script>
+</body>
+</html>
