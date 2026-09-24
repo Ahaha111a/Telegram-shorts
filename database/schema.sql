@@ -58,3 +58,7 @@ create index if not exists idx_videos_user_id on videos (user_id);
 create index if not exists idx_video_views_video_id on video_views (video_id);
 create index if not exists idx_comments_video_id on comments (video_id);
 create index if not exists idx_follows_following_id on follows (following_id);
+
+
+create table if not exists notifications (id bigint generated always as identity primary key,user_id bigint not null references users(id) on delete cascade,actor_id bigint references users(id) on delete cascade,type text not null,video_id bigint references videos(id) on delete cascade,created_at timestamptz not null default now(),is_read boolean not null default false);
+create index if not exists idx_notifications_user_id on notifications(user_id,created_at desc);
