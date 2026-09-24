@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, quote
 import asyncpg
 import httpx
 from aiogram import Bot, Dispatcher
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -334,6 +334,11 @@ async def upload_to_storage(file: UploadFile, user_id: int):
     return public_url
 
 
+@dp.message(Command("id"))
+async def id_handler(message: Message):
+    await message.answer(f"🆔 Ваш Telegram ID: <code>{message.from_user.id}</code>", parse_mode="HTML")
+
+
 @dp.message(CommandStart())
 async def start_handler(message: Message):
     await save_user(message)
@@ -397,7 +402,7 @@ async def get_me(request: Request):
             int(user["id"]),
         )
 
-    return {"ok": True, "user": dict(row) if row else None}
+    return {"ok": True, "user": dict(row) if row else None, "is_admin": int(user["id"]) in ADMIN_TELEGRAM_IDS}
 
 
 @app.get("/api/feed")
