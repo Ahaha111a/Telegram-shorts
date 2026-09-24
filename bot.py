@@ -24,6 +24,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 STORAGE_BUCKET = "videos"
 MAX_VIDEO_SIZE = 50 * 1024 * 1024
+ADMIN_TELEGRAM_IDS = {int(x.strip()) for x in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip().isdigit()}
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN не найден")
@@ -70,6 +71,8 @@ async def init_db():
             views_count bigint not null default 0,
             likes_count bigint not null default 0,
             comments_count bigint not null default 0,
+            is_deleted boolean not null default false,
+            deleted_at timestamptz,
             created_at timestamptz not null default now()
         );
 
@@ -103,6 +106,20 @@ async def init_db():
             check (follower_id <> following_id)
         );
 
+        alter table videos add column if not exists is_deleted boolean not null default false;
+        alter table videos add column if not exists deleted_at timestamptz;
+        create table if not exists reports (
+            id bigint generated always as identity primary key,
+            reporter_id bigint not null references users(id) on delete cascade,
+            video_id bigint not null references videos(id) on delete cascade,
+            reason text not null,
+            details text,
+            status text not null default 'open',
+            created_at timestamptz not null default now(),
+            resolved_at timestamptz,
+            resolved_by bigint references users(id) on delete set null,
+            unique (reporter_id, video_id)
+        );
         create index if not exists idx_videos_created_at on videos (created_at desc);
         create index if not exists idx_videos_user_id on videos (user_id);
         create index if not exists idx_video_views_video_id on video_views (video_id);
@@ -119,6 +136,7 @@ async def init_db():
 
         create index if not exists idx_follows_following_id on follows (following_id);
         create index if not exists idx_notifications_user_id on notifications (user_id, created_at desc);
+        create index if not exists idx_reports_status_created_at on reports (status, created_at desc);
         """)
     print("Supabase: таблицы успешно проверены/созданы.")
 
@@ -410,6 +428,7 @@ async def get_feed(request: Request):
                 ) as liked
             from videos v
             join users u on u.id = v.user_id
+            where not v.is_deleted
             order by v.created_at desc
             limit 30
             """,
@@ -444,6 +463,67 @@ async def upload_video(
         )
 
     return {"ok": True, "video": dict(row)}
+
+
+@app.delete("/api/videos/{video_id}")
+async def delete_video(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    user_id = int(user["id"])
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(
+            "select id, user_id, video_url, is_deleted from videos where id=$1",
+            video_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Видео не найдено")
+        if int(row["user_id"]) != user_id:
+            raise HTTPException(status_code=403, detail="Можно удалить только своё видео")
+        if row["is_deleted"]:
+            return {"ok": True, "deleted": True}
+        await connection.execute(
+            "update videos set is_deleted=true, deleted_at=now() where id=$1",
+            video_id,
+        )
+
+    try:
+        marker = f"/storage/v1/object/public/{STORAGE_BUCKET}/"
+        if marker in row["video_url"]:
+            storage_path = row["video_url"].split(marker, 1)[1]
+            delete_url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{STORAGE_BUCKET}/{quote(storage_path, safe='/')}"
+            headers = {"Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}", "apikey": SUPABASE_SERVICE_ROLE_KEY}
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.delete(delete_url, headers=headers)
+            if response.status_code not in (200, 204, 404):
+                print(f"Storage delete warning: {response.status_code} {response.text[:300]}")
+    except Exception as error:
+        print(f"Storage delete warning: {error}")
+
+    return {"ok": True, "deleted": True}
+
+
+@app.post("/api/videos/{video_id}/report")
+async def report_video(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    body = await request.json()
+    reason = str(body.get("reason", "other")).strip()[:50]
+    details = str(body.get("details", "")).strip()[:500] or None
+    allowed_reasons = {"spam", "violence", "sexual", "harassment", "copyright", "other"}
+    if reason not in allowed_reasons:
+        raise HTTPException(status_code=400, detail="Недопустимая причина жалобы")
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
+        if not exists:
+            raise HTTPException(status_code=404, detail="Видео не найдено")
+        row = await connection.fetchrow(
+            """insert into reports(reporter_id, video_id, reason, details)
+               values($1,$2,$3,$4)
+               on conflict (reporter_id, video_id) do update set reason=excluded.reason, details=excluded.details, status='open', resolved_at=null, resolved_by=null
+               returning id""",
+            int(user["id"]), video_id, reason, details,
+        )
+    return {"ok": True, "report_id": row["id"]}
 
 
 @app.post("/api/videos/{video_id}/view")
@@ -541,7 +621,7 @@ async def get_profile(user_id: int, request: Request):
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
           from users u where u.id=$2""", int(viewer["id"]), user_id)
-        videos = await connection.fetch("select id,video_url,caption,views_count,likes_count,comments_count,created_at from videos where user_id=$1 order by created_at desc limit 60", user_id)
+        videos = await connection.fetch("select id,video_url,caption,views_count,likes_count,comments_count,created_at from videos where user_id=$1 and not is_deleted order by created_at desc limit 60", user_id)
     if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
     return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
 
@@ -553,14 +633,14 @@ async def search(q: str = "", request: Request = None):
     p=await get_db_pool(); pattern=f"%{query}%"
     async with p.acquire() as c:
         users=await c.fetch("""select id,username,first_name,last_name,avatar_url,(select count(*) from follows f where f.following_id=u.id) as followers_count from users u where coalesce(username,'') ilike $1 or coalesce(first_name,'') ilike $1 or coalesce(last_name,'') ilike $1 order by followers_count desc limit 20""",pattern)
-        videos=await c.fetch("""select v.id,v.video_url,v.caption,v.views_count,v.likes_count,u.id as user_id,u.username,u.first_name,u.avatar_url from videos v join users u on u.id=v.user_id where coalesce(v.caption,'') ilike $1 or coalesce(u.username,'') ilike $1 order by v.created_at desc limit 20""",pattern)
+        videos=await c.fetch("""select v.id,v.video_url,v.caption,v.views_count,v.likes_count,u.id as user_id,u.username,u.first_name,u.avatar_url from videos v join users u on u.id=v.user_id where not v.is_deleted and (coalesce(v.caption,'') ilike $1 or coalesce(u.username,'') ilike $1) order by v.created_at desc limit 20""",pattern)
     return {"ok":True,"users":[dict(x) for x in users],"videos":[dict(x) for x in videos]}
 
 @app.get("/api/videos/{video_id}/comments")
 async def get_comments(video_id:int, request:Request):
     await get_authenticated_user(request); p=await get_db_pool()
     async with p.acquire() as c:
-        rows=await c.fetch("""select c.id,c.text,c.created_at,u.id as user_id,u.username,u.first_name,u.avatar_url from comments c join users u on u.id=c.user_id where c.video_id=$1 order by c.created_at desc limit 100""",video_id)
+        rows=await c.fetch("""select c.id,c.text,c.created_at,u.id as user_id,u.username,u.first_name,u.avatar_url from comments c join users u on u.id=c.user_id where c.video_id=$1 and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted) order by c.created_at desc limit 100""",video_id)
     return {"ok":True,"comments":[dict(x) for x in rows]}
 
 @app.post("/api/videos/{video_id}/comments")
@@ -599,6 +679,57 @@ async def get_notifications(request:Request):
         rows=await c.fetch("""select n.id,n.type,n.video_id,n.created_at,n.is_read,u.username,u.first_name,u.avatar_url from notifications n left join users u on u.id=n.actor_id where n.user_id=$1 order by n.created_at desc limit 50""",int(user["id"]))
         await c.execute("update notifications set is_read=true where user_id=$1",int(user["id"]))
     return {"ok":True,"notifications":[dict(x) for x in rows]}
+
+
+def require_admin(user_data):
+    if not ADMIN_TELEGRAM_IDS:
+        raise HTTPException(status_code=503, detail="Администратор ещё не настроен")
+    if int(user_data["id"]) not in ADMIN_TELEGRAM_IDS:
+        raise HTTPException(status_code=403, detail="Доступ только для администратора")
+
+
+@app.get("/api/admin/reports")
+async def admin_reports(request: Request):
+    user = await get_authenticated_user(request)
+    require_admin(user)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        rows = await connection.fetch(
+            """select r.id,r.video_id,r.reason,r.details,r.status,r.created_at,
+                      r.reporter_id,u.username as reporter_username,
+                      v.video_url,v.caption,v.user_id as owner_id
+               from reports r
+               join users u on u.id=r.reporter_id
+               join videos v on v.id=r.video_id
+               order by r.created_at desc limit 100"""
+        )
+    return {"ok": True, "reports": [dict(row) for row in rows]}
+
+
+@app.post("/api/admin/videos/{video_id}/hide")
+async def admin_hide_video(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    require_admin(user)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow("select id from videos where id=$1", video_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Видео не найдено")
+        await connection.execute("update videos set is_deleted=true, deleted_at=coalesce(deleted_at, now()) where id=$1", video_id)
+        await connection.execute("update reports set status='resolved', resolved_at=now(), resolved_by=$1 where video_id=$2 and status='open'", int(user["id"]), video_id)
+    return {"ok": True, "hidden": True}
+
+
+@app.post("/api/admin/reports/{report_id}/resolve")
+async def admin_resolve_report(report_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    require_admin(user)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow("update reports set status='resolved', resolved_at=now(), resolved_by=$1 where id=$2 returning id", int(user["id"]), report_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Жалоба не найдена")
+    return {"ok": True, "resolved": True}
 
 
 DIST_DIR = Path("dist")
