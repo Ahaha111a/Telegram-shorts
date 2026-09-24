@@ -5,13 +5,14 @@ import hmac
 import hashlib
 import time
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote
 
 import asyncpg
+import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -19,16 +20,25 @@ import uvicorn
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://telegram-shorts-production.up.railway.app")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+STORAGE_BUCKET = "videos"
+MAX_VIDEO_SIZE = 50 * 1024 * 1024
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN не найден")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL не найден")
+if not SUPABASE_URL:
+    raise RuntimeError("SUPABASE_URL не найден")
+if not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY не найден")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 app = FastAPI()
 db_pool = None
+
 
 async def get_db_pool():
     global db_pool
@@ -36,65 +46,90 @@ async def get_db_pool():
         db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
     return db_pool
 
+
 async def init_db():
     pool = await get_db_pool()
     async with pool.acquire() as connection:
         await connection.execute("""
-            create table if not exists users (
-                id bigint primary key,
-                username text,
-                first_name text,
-                last_name text,
-                avatar_url text,
-                bio text,
-                created_at timestamptz not null default now()
-            );
-            create table if not exists videos (
-                id bigint generated always as identity primary key,
-                user_id bigint not null references users(id) on delete cascade,
-                video_url text not null,
-                thumbnail_url text,
-                caption text,
-                views_count bigint not null default 0,
-                likes_count bigint not null default 0,
-                comments_count bigint not null default 0,
-                created_at timestamptz not null default now()
-            );
-            create table if not exists video_views (
-                id bigint generated always as identity primary key,
-                video_id bigint not null references videos(id) on delete cascade,
-                user_id bigint references users(id) on delete set null,
-                viewed_at timestamptz not null default now()
-            );
-            create table if not exists video_likes (
-                video_id bigint not null references videos(id) on delete cascade,
-                user_id bigint not null references users(id) on delete cascade,
-                created_at timestamptz not null default now(),
-                primary key (video_id, user_id)
-            );
-            create table if not exists comments (
-                id bigint generated always as identity primary key,
-                video_id bigint not null references videos(id) on delete cascade,
-                user_id bigint not null references users(id) on delete cascade,
-                text text not null,
-                created_at timestamptz not null default now()
-            );
-            create table if not exists follows (
-                follower_id bigint not null references users(id) on delete cascade,
-                following_id bigint not null references users(id) on delete cascade,
-                created_at timestamptz not null default now(),
-                primary key (follower_id, following_id),
-                check (follower_id <> following_id)
-            );
-            create index if not exists idx_videos_created_at on videos (created_at desc);
-            create index if not exists idx_videos_user_id on videos (user_id);
-            create index if not exists idx_video_views_video_id on video_views (video_id);
-            create index if not exists idx_comments_video_id on comments (video_id);
-            create index if not exists idx_follows_following_id on follows (following_id);
+        create table if not exists users (
+            id bigint primary key,
+            username text,
+            first_name text,
+            last_name text,
+            avatar_url text,
+            bio text,
+            created_at timestamptz not null default now()
+        );
+
+        create table if not exists videos (
+            id bigint generated always as identity primary key,
+            user_id bigint not null references users(id) on delete cascade,
+            video_url text not null,
+            thumbnail_url text,
+            caption text,
+            views_count bigint not null default 0,
+            likes_count bigint not null default 0,
+            comments_count bigint not null default 0,
+            created_at timestamptz not null default now()
+        );
+
+        create table if not exists video_views (
+            id bigint generated always as identity primary key,
+            video_id bigint not null references videos(id) on delete cascade,
+            user_id bigint references users(id) on delete set null,
+            viewed_at timestamptz not null default now()
+        );
+
+        create table if not exists video_likes (
+            video_id bigint not null references videos(id) on delete cascade,
+            user_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (video_id, user_id)
+        );
+
+        create table if not exists comments (
+            id bigint generated always as identity primary key,
+            video_id bigint not null references videos(id) on delete cascade,
+            user_id bigint not null references users(id) on delete cascade,
+            text text not null,
+            created_at timestamptz not null default now()
+        );
+
+        create table if not exists follows (
+            follower_id bigint not null references users(id) on delete cascade,
+            following_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (follower_id, following_id),
+            check (follower_id <> following_id)
+        );
+
+        create index if not exists idx_videos_created_at on videos (created_at desc);
+        create index if not exists idx_videos_user_id on videos (user_id);
+        create index if not exists idx_video_views_video_id on video_views (video_id);
+        create index if not exists idx_comments_video_id on comments (video_id);
+        create index if not exists idx_follows_following_id on follows (following_id);
         """)
     print("Supabase: таблицы успешно проверены/созданы.")
 
-async def save_user(user_data):
+
+async def init_storage():
+    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/bucket"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json",
+    }
+    payload = {"id": STORAGE_BUCKET, "name": STORAGE_BUCKET, "public": True}
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        if response.status_code not in (200, 201, 409):
+            raise RuntimeError(
+                f"Не удалось создать Storage bucket: {response.status_code} {response.text[:300]}"
+            )
+    print("Supabase Storage: bucket videos готов.")
+
+
+async def save_user_data(user_data):
     pool = await get_db_pool()
     async with pool.acquire() as connection:
         await connection.execute(
@@ -107,75 +142,343 @@ async def save_user(user_data):
                 last_name = excluded.last_name,
                 avatar_url = excluded.avatar_url
             """,
-            int(user_data["id"]), user_data.get("username"),
-            user_data.get("first_name"), user_data.get("last_name"),
+            int(user_data["id"]),
+            user_data.get("username"),
+            user_data.get("first_name"),
+            user_data.get("last_name"),
             user_data.get("photo_url"),
         )
+
+
+async def save_user(message: Message):
+    user = message.from_user
+    await save_user_data({
+        "id": user.id,
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "photo_url": None,
+    })
+
 
 def validate_telegram_init_data(init_data: str):
     if not init_data:
         raise ValueError("Telegram initData отсутствует")
+
     parsed = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = parsed.pop("hash", None)
     if not received_hash:
         raise ValueError("В initData отсутствует hash")
-    data_check_string = "\n".join(f"{key}={parsed[key]}" for key in sorted(parsed.keys()))
-    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+    data_check_string = "\n".join(
+        f"{key}={parsed[key]}" for key in sorted(parsed.keys())
+    )
+
+    secret_key = hmac.new(
+        b"WebAppData",
+        BOT_TOKEN.encode(),
+        hashlib.sha256,
+    ).digest()
+
+    calculated_hash = hmac.new(
+        secret_key,
+        data_check_string.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
     if not hmac.compare_digest(calculated_hash, received_hash):
         raise ValueError("Неверная подпись Telegram initData")
+
     auth_date = int(parsed.get("auth_date", "0"))
     if auth_date and time.time() - auth_date > 86400:
         raise ValueError("Telegram initData устарел")
+
     user_json = parsed.get("user")
     if not user_json:
         raise ValueError("Данные пользователя отсутствуют")
+
     user_data = json.loads(user_json)
     if "id" not in user_data:
         raise ValueError("Telegram user id отсутствует")
+
     return user_data
+
+
+async def get_authenticated_user(request: Request):
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    try:
+        user_data = validate_telegram_init_data(init_data)
+        await save_user_data(user_data)
+        return user_data
+    except Exception as error:
+        raise HTTPException(status_code=401, detail=str(error))
+
+
+async def upload_to_storage(file: UploadFile, user_id: int):
+    allowed_types = {
+        "video/mp4": ".mp4",
+        "video/webm": ".webm",
+        "video/quicktime": ".mov",
+    }
+    extension = allowed_types.get(file.content_type)
+    if not extension:
+        raise HTTPException(
+            status_code=400,
+            detail="Поддерживаются только MP4, WebM и MOV.",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="Видео слишком большое. Максимум 50 МБ.",
+        )
+
+    filename = f"{user_id}/{int(time.time() * 1000)}{extension}"
+    storage_path = quote(filename, safe="/")
+    url = (
+        f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/"
+        f"{STORAGE_BUCKET}/{storage_path}"
+    )
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": file.content_type,
+        "x-upsert": "false",
+    }
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.post(url, headers=headers, content=content)
+
+    if response.status_code not in (200, 201):
+        print(f"Storage upload error: {response.status_code} {response.text[:500]}")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить видео.")
+
+    public_url = (
+        f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/public/"
+        f"{STORAGE_BUCKET}/{storage_path}"
+    )
+    return public_url
+
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-    # aiogram User does not expose photo_url directly. The Mini App provides it securely.
-    await save_user({
-        "id": message.from_user.id,
-        "username": message.from_user.username,
-        "first_name": message.from_user.first_name,
-        "last_name": message.from_user.last_name,
-        "photo_url": None,
-    })
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text="🎬 Открыть Telegram Shorts", web_app=WebAppInfo(url=WEB_APP_URL)
-    )]])
+    await save_user(message)
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🎬 Открыть Telegram Shorts",
+                web_app=WebAppInfo(url=WEB_APP_URL),
+            )
+        ]]
+    )
+
     await message.answer(
         "👋 Добро пожаловать в Telegram Shorts!\n\n"
         "🎬 Смотри короткие видео и открывай новые возможности.",
         reply_markup=keyboard,
     )
 
+
 @app.post("/api/auth")
 async def authenticate(request: Request):
     try:
         body = await request.json()
         user_data = validate_telegram_init_data(body.get("initData", ""))
-        await save_user(user_data)
-        return {"ok": True, "user": {
-            "id": int(user_data["id"]),
-            "username": user_data.get("username"),
-            "first_name": user_data.get("first_name"),
-            "last_name": user_data.get("last_name"),
-            "photo_url": user_data.get("photo_url"),
-        }}
+        await save_user_data(user_data)
+
+        return {
+            "ok": True,
+            "user": {
+                "id": int(user_data["id"]),
+                "username": user_data.get("username"),
+                "first_name": user_data.get("first_name"),
+                "last_name": user_data.get("last_name"),
+                "photo_url": user_data.get("photo_url"),
+            },
+        }
     except ValueError as error:
         return JSONResponse(status_code=401, content={"ok": False, "error": str(error)})
     except Exception as error:
         print(f"Auth error: {error}")
         return JSONResponse(status_code=500, content={"ok": False, "error": "Ошибка сервера"})
 
+
+@app.get("/api/me")
+async def get_me(request: Request):
+    user = await get_authenticated_user(request)
+    pool = await get_db_pool()
+
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(
+            """
+            select
+                u.id, u.username, u.first_name, u.last_name, u.avatar_url, u.bio,
+                (select count(*) from videos v where v.user_id = u.id) as videos_count,
+                (select count(*) from follows f where f.following_id = u.id) as followers_count,
+                (select count(*) from follows f where f.follower_id = u.id) as following_count
+            from users u
+            where u.id = $1
+            """,
+            int(user["id"]),
+        )
+
+    return {"ok": True, "user": dict(row) if row else None}
+
+
+@app.get("/api/feed")
+async def get_feed(request: Request):
+    user = await get_authenticated_user(request)
+    pool = await get_db_pool()
+
+    async with pool.acquire() as connection:
+        rows = await connection.fetch(
+            """
+            select
+                v.id,
+                v.user_id,
+                v.video_url,
+                v.caption,
+                v.views_count,
+                v.likes_count,
+                v.comments_count,
+                v.created_at,
+                u.username,
+                u.first_name,
+                u.last_name,
+                u.avatar_url,
+                exists(
+                    select 1
+                    from video_likes vl
+                    where vl.video_id = v.id and vl.user_id = $1
+                ) as liked
+            from videos v
+            join users u on u.id = v.user_id
+            order by v.created_at desc
+            limit 30
+            """,
+            int(user["id"]),
+        )
+
+    return {"ok": True, "videos": [dict(row) for row in rows]}
+
+
+@app.post("/api/videos/upload")
+async def upload_video(
+    request: Request,
+    video: UploadFile = File(...),
+    caption: str = "",
+):
+    user = await get_authenticated_user(request)
+    user_id = int(user["id"])
+
+    public_url = await upload_to_storage(video, user_id)
+
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(
+            """
+            insert into videos (user_id, video_url, caption)
+            values ($1, $2, $3)
+            returning id, video_url, caption, created_at
+            """,
+            user_id,
+            public_url,
+            caption.strip()[:500] if caption else None,
+        )
+
+    return {"ok": True, "video": dict(row)}
+
+
+@app.post("/api/videos/{video_id}/view")
+async def add_view(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    user_id = int(user["id"])
+    pool = await get_db_pool()
+
+    async with pool.acquire() as connection:
+        await connection.execute(
+            """
+            insert into video_views (video_id, user_id)
+            values ($1, $2)
+            """,
+            video_id,
+            user_id,
+        )
+        row = await connection.fetchrow(
+            """
+            update videos
+            set views_count = views_count + 1
+            where id = $1
+            returning views_count
+            """,
+            video_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+
+    return {"ok": True, "views_count": row["views_count"]}
+
+
+@app.post("/api/videos/{video_id}/like")
+async def toggle_like(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    user_id = int(user["id"])
+    pool = await get_db_pool()
+
+    async with pool.acquire() as connection:
+        existing = await connection.fetchval(
+            """
+            select 1 from video_likes
+            where video_id = $1 and user_id = $2
+            """,
+            video_id,
+            user_id,
+        )
+
+        if existing:
+            await connection.execute(
+                "delete from video_likes where video_id = $1 and user_id = $2",
+                video_id,
+                user_id,
+            )
+            liked = False
+        else:
+            await connection.execute(
+                """
+                insert into video_likes (video_id, user_id)
+                values ($1, $2)
+                on conflict do nothing
+                """,
+                video_id,
+                user_id,
+            )
+            liked = True
+
+        row = await connection.fetchrow(
+            """
+            update videos
+            set likes_count = (
+                select count(*) from video_likes where video_id = $1
+            )
+            where id = $1
+            returning likes_count
+            """,
+            video_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+
+    return {"ok": True, "liked": liked, "likes_count": row["likes_count"]}
+
+
 DIST_DIR = Path("dist")
 if (DIST_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
+
 
 @app.get("/")
 async def home():
@@ -184,15 +487,19 @@ async def home():
         return FileResponse(index_file)
     return JSONResponse({"status": "ok", "service": "Telegram Shorts"})
 
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "Telegram Shorts"}
 
+
 async def run_bot():
     print("Telegram Shorts bot запускается...")
     await init_db()
+    await init_storage()
     print("Telegram Shorts bot запущен!")
     await dp.start_polling(bot)
+
 
 async def run_web_server():
     port = int(os.getenv("PORT", "8080"))
@@ -200,8 +507,10 @@ async def run_web_server():
     server = uvicorn.Server(config)
     await server.serve()
 
+
 async def main():
     await asyncio.gather(run_bot(), run_web_server())
+
 
 if __name__ == "__main__":
     asyncio.run(main())
