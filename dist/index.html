@@ -1,266 +1,31 @@
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#050505" />
-  <title>Telegram Shorts</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; width: 100%; height: 100%; background: #050505; color: #fff; font-family: Arial, sans-serif; }
-    body { overflow: hidden; }
-    button, input { font: inherit; }
-    .app { height: 100dvh; position: relative; background: #050505; }
-    .top { position: fixed; z-index: 20; top: 0; left: 0; right: 0; padding: calc(env(safe-area-inset-top) + 10px) 14px 10px; display:flex; justify-content:space-between; align-items:center; pointer-events:none; background: linear-gradient(#050505cc, transparent); }
-    .brand { font-weight: 800; font-size: 19px; pointer-events:auto; }
-    .top button { pointer-events:auto; border:0; background:#ffffff18; color:#fff; border-radius:999px; padding:9px 12px; }
-    .feed { height:100%; overflow-y:auto; scroll-snap-type:y mandatory; scrollbar-width:none; }
-    .feed::-webkit-scrollbar { display:none; }
-    .slide { position:relative; height:100dvh; min-height:100dvh; scroll-snap-align:start; background:#101010; display:flex; align-items:center; justify-content:center; }
-    .video { width:100%; height:100%; object-fit:cover; background:#101010; }
-    .shade { position:absolute; inset:0; background:linear-gradient(transparent 48%, #000c 100%); pointer-events:none; }
-    .side { position:absolute; right:12px; bottom:92px; display:flex; flex-direction:column; gap:12px; align-items:center; }
-    .action { width:52px; min-height:52px; border:0; border-radius:18px; background:#0009; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; }
-    .action.liked { background:#ff245b; }
-    .count { font-size:11px; }
-    .meta { position:absolute; left:14px; right:78px; bottom:24px; z-index:3; text-shadow:0 1px 4px #000; }
-    .author { font-weight:800; margin-bottom:8px; }
-    .caption { font-size:14px; line-height:1.35; }
-    .empty, .loading { height:100%; display:flex; align-items:center; justify-content:center; padding:30px; text-align:center; color:#aaa; }
-    .upload-panel, .profile-panel { position:fixed; z-index:50; left:0; right:0; bottom:0; background:#171717; border-radius:24px 24px 0 0; padding:18px; transform:translateY(105%); transition:.25s; box-shadow:0 -10px 40px #0008; }
-    .panel-open { transform:translateY(0); }
-    .panel-title { font-size:20px; font-weight:800; margin-bottom:14px; }
-    .field { width:100%; margin:8px 0; padding:13px; border:1px solid #333; border-radius:14px; background:#0d0d0d; color:#fff; }
-    .primary { width:100%; padding:14px; border:0; border-radius:14px; background:#fff; color:#000; font-weight:800; margin-top:8px; }
-    .secondary { width:100%; padding:12px; border:0; border-radius:14px; background:#ffffff12; color:#fff; margin-top:8px; }
-    .profile { display:flex; gap:14px; align-items:center; margin-bottom:16px; }
-    .avatar { width:64px; height:64px; border-radius:50%; object-fit:cover; background:#333; }
-    .stats { display:flex; gap:18px; margin-top:8px; color:#aaa; font-size:13px; }
-    .status { font-size:13px; color:#aaa; min-height:18px; margin-top:7px; }
-  </style>
-</head>
-<body>
-<div class="app">
-  <div class="top">
-    <div class="brand">Telegram Shorts</div>
-    <div>
-      <button id="profileBtn">👤</button>
-      <button id="uploadBtn">＋</button>
-    </div>
-  </div>
-
-  <div id="feed" class="feed">
-    <div class="loading">Загрузка…</div>
-  </div>
-
-  <div id="uploadPanel" class="upload-panel">
-    <div class="panel-title">🎬 Новое видео</div>
-    <input id="videoFile" class="field" type="file" accept="video/mp4,video/webm,video/quicktime" />
-    <input id="caption" class="field" type="text" maxlength="500" placeholder="Описание видео (необязательно)" />
-    <button id="publishBtn" class="primary">Опубликовать</button>
-    <button id="closeUpload" class="secondary">Закрыть</button>
-    <div id="uploadStatus" class="status"></div>
-  </div>
-
-  <div id="profilePanel" class="profile-panel">
-    <div class="panel-title">👤 Профиль</div>
-    <div id="profileContent">Загрузка…</div>
-    <button id="closeProfile" class="secondary">Закрыть</button>
-  </div>
-</div>
-
+<!doctype html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#030407"><title>Telegram Shorts</title><script src="https://telegram.org/js/telegram-web-app.js"></script><style>
+:root{color-scheme:dark;--bg:#030407;--panel:#0a0d13;--glass:#101522cc;--line:#ffffff14;--muted:#8f98aa;--text:#f7f8ff;--a:#8a5cff;--b:#19a7ff;--pink:#e94cff}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}body{overflow:hidden}button,input{font:inherit}.app{height:100dvh;position:relative;background:radial-gradient(circle at 50% -10%,#18213a 0,#030407 38%)}.top{position:fixed;z-index:30;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top) + 12px) 16px 10px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(#030407e8,transparent);pointer-events:none}.brand{font-weight:900;font-size:18px;letter-spacing:-.5px}.brand span{background:linear-gradient(90deg,#fff,#9b70ff,#26b8ff);-webkit-background-clip:text;color:transparent}.top-actions{display:flex;gap:8px;pointer-events:auto}.icon{width:38px;height:38px;border:1px solid var(--line);border-radius:13px;background:#0d1119b8;color:#fff;backdrop-filter:blur(14px)}.feed{height:100%;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}.feed::-webkit-scrollbar{display:none}.slide{position:relative;height:100dvh;min-height:100dvh;scroll-snap-align:start;background:#06080c;overflow:hidden}.video{width:100%;height:100%;object-fit:cover;background:#07090e}.shade{position:absolute;inset:0;background:linear-gradient(180deg,#0005 0%,transparent 30%,#0002 55%,#000d 100%);pointer-events:none}.vignette{position:absolute;inset:0;box-shadow:inset 0 0 120px #0008;pointer-events:none}.side{position:absolute;right:12px;bottom:108px;display:flex;flex-direction:column;gap:10px;align-items:center}.action{width:48px;min-height:48px;border:1px solid #ffffff18;border-radius:17px;background:#080b12b8;color:#fff;backdrop-filter:blur(14px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;box-shadow:0 8px 25px #0005}.action.liked{background:linear-gradient(145deg,#8b35ff,#e63b9d);border-color:#ffffff30}.action span:first-child{font-size:19px}.count{font-size:10px;color:#d7d9e1}.meta{position:absolute;left:16px;right:76px;bottom:96px;z-index:3;text-shadow:0 2px 12px #000}.author{font-weight:850;font-size:15px;margin-bottom:8px}.follow-mini{margin-left:8px;border:1px solid #ffffff2b;border-radius:999px;background:#ffffff12;color:#fff;padding:5px 9px;font-size:10px}.caption{font-size:14px;line-height:1.4;color:#f0f1f5}.sound{margin-top:9px;font-size:11px;color:#c8ceda}.bottom{position:fixed;z-index:40;bottom:0;left:0;right:0;padding:8px 12px calc(env(safe-area-inset-bottom) + 8px);display:grid;grid-template-columns:1fr 1fr 1.15fr 1fr 1fr;background:linear-gradient(transparent,#030407f2 38%);backdrop-filter:blur(8px)}.nav{border:0;background:transparent;color:#8f98aa;font-size:10px;display:flex;flex-direction:column;align-items:center;gap:4px}.nav.active{color:#fff}.nav.plus{width:48px;height:48px;margin:-10px auto 0;border-radius:17px;color:#fff;background:linear-gradient(135deg,var(--a),var(--b));box-shadow:0 8px 28px #6b4dff66;font-size:23px}.nav small{font-size:10px}.panel{position:fixed;z-index:80;left:0;right:0;bottom:0;max-height:88dvh;background:linear-gradient(180deg,#0b0e16f7,#05070bf9);border:1px solid var(--line);border-bottom:0;border-radius:28px 28px 0 0;padding:18px 16px calc(env(safe-area-inset-bottom) + 18px);transform:translateY(105%);transition:.28s cubic-bezier(.2,.8,.2,1);box-shadow:0 -30px 90px #000b;backdrop-filter:blur(24px);overflow:auto}.panel.open{transform:translateY(0)}.handle{width:42px;height:4px;border-radius:99px;background:#fff2;margin:0 auto 16px}.panel-title{font-size:20px;font-weight:850;margin-bottom:14px}.field{width:100%;padding:14px 15px;border:1px solid var(--line);border-radius:16px;background:#080b11;color:#fff;outline:none;margin:7px 0}.primary{width:100%;padding:14px;border:0;border-radius:16px;background:linear-gradient(100deg,#8b3cff,#6f63ff,#18aafc);color:#fff;font-weight:850;margin-top:8px;box-shadow:0 12px 35px #6c43ff35}.secondary{width:100%;padding:12px;border:1px solid var(--line);border-radius:16px;background:#ffffff08;color:#fff;margin-top:8px}.status{font-size:12px;color:var(--muted);min-height:18px;margin-top:8px}.profile-head{display:flex;gap:14px;align-items:center}.avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;background:linear-gradient(135deg,#161c2a,#07090e);border:1px solid #ffffff20}.stats{display:flex;gap:16px;margin-top:10px;font-size:12px;color:#aeb6c6}.bio{color:#aeb6c6;font-size:13px;margin:12px 0}.profile-actions{display:flex;gap:8px}.profile-actions button{flex:1}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}.grid video{width:100%;aspect-ratio:9/14;object-fit:cover;background:#111;border-radius:5px}.searchbox{display:flex;gap:8px}.searchbox input{flex:1}.result{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}.result .avatar{width:42px;height:42px}.result button{margin-left:auto;border:1px solid #ffffff18;border-radius:12px;background:#111826;color:#fff;padding:8px 11px}.comment{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}.comment .avatar{width:36px;height:36px}.comment b{font-size:12px}.comment p{margin:3px 0 0;color:#d6dae4;font-size:13px}.empty,.loading{height:100%;display:flex;align-items:center;justify-content:center;padding:35px;text-align:center;color:#9aa3b3}.toast{position:fixed;z-index:120;left:50%;bottom:85px;transform:translateX(-50%) translateY(20px);opacity:0;background:#111722ee;border:1px solid var(--line);padding:10px 14px;border-radius:14px;font-size:12px;transition:.2s;backdrop-filter:blur(16px)}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style></head><body><div class="app"><div class="top"><div class="brand">Telegram <span>Shorts</span></div><div class="top-actions"><button class="icon" id="searchBtn">⌕</button><button class="icon" id="profileBtn">◯</button></div></div><main id="feed" class="feed"><div class="loading">Загрузка…</div></main><nav class="bottom"><button class="nav active" data-nav="home">⌂<small>Главная</small></button><button class="nav" data-nav="search">⌕<small>Поиск</small></button><button class="nav plus" id="uploadBtn">＋</button><button class="nav" data-nav="notify">♧<small>События</small></button><button class="nav" data-nav="profile">◯<small>Профиль</small></button></nav>
+<div class="panel" id="uploadPanel"><div class="handle"></div><div class="panel-title">Создать Shorts</div><input id="videoFile" class="field" type="file" accept="video/mp4,video/webm,video/quicktime"><input id="caption" class="field" maxlength="500" placeholder="Расскажи, что происходит в видео…"><button id="publishBtn" class="primary">Опубликовать</button><button class="secondary close-panel">Отмена</button><div id="uploadStatus" class="status"></div></div>
+<div class="panel" id="profilePanel"><div class="handle"></div><div class="panel-title">Профиль</div><div id="profileContent">Загрузка…</div><button class="secondary close-panel">Закрыть</button></div>
+<div class="panel" id="searchPanel"><div class="handle"></div><div class="panel-title">Поиск</div><div class="searchbox"><input id="searchInput" class="field" placeholder="Люди, видео, темы…"><button id="searchGo" class="icon" style="margin-top:7px">→</button></div><div id="searchResults"></div></div>
+<div class="panel" id="commentsPanel"><div class="handle"></div><div class="panel-title">Комментарии</div><div id="commentsList"></div><div class="searchbox"><input id="commentInput" class="field" maxlength="500" placeholder="Написать комментарий…"><button id="commentSend" class="icon" style="margin-top:7px">➤</button></div></div>
+<div class="panel" id="notifyPanel"><div class="handle"></div><div class="panel-title">События</div><div id="notifyList">Загрузка…</div></div><div id="toast" class="toast"></div></div>
 <script>
-const tg = window.Telegram?.WebApp;
-const feed = document.getElementById('feed');
-let initData = '';
-let viewed = new Set();
-
-function apiHeaders(extra = {}) {
-  return { 'X-Telegram-Init-Data': initData, ...extra };
-}
-
-async function auth() {
-  if (!tg) throw new Error('Откройте приложение через Telegram.');
-  tg.ready();
-  tg.expand();
-  initData = tg.initData || '';
-  if (!initData) throw new Error('Telegram не передал данные авторизации. Закройте и снова откройте Mini App через бота.');
-
-  const response = await fetch('/api/auth', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({initData})
-  });
-  const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.error || 'Ошибка авторизации');
-}
-
-function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-}
-
-function renderFeed(videos) {
-  if (!videos.length) {
-    feed.innerHTML = '<div class="empty">Пока нет видео.<br><br>Нажмите ＋ и загрузите первое Shorts.</div>';
-    return;
-  }
-
-  feed.innerHTML = videos.map(v => `
-    <section class="slide" data-id="${v.id}">
-      <video class="video" src="${esc(v.video_url)}" playsinline muted loop preload="metadata"></video>
-      <div class="shade"></div>
-      <div class="side">
-        <button class="action like-btn ${v.liked ? 'liked' : ''}" data-id="${v.id}">
-          <span>♥</span><span class="count like-count">${v.likes_count || 0}</span>
-        </button>
-        <button class="action"><span>▶</span><span class="count view-count">${v.views_count || 0}</span></button>
-      </div>
-      <div class="meta">
-        <div class="author">@${esc(v.username || v.first_name || 'user')}</div>
-        <div class="caption">${esc(v.caption || '')}</div>
-      </div>
-    </section>
-  `).join('');
-
-  document.querySelectorAll('.video').forEach(video => {
-    video.addEventListener('click', () => {
-      if (video.paused) video.play(); else video.pause();
-    });
-  });
-
-  document.querySelectorAll('.like-btn').forEach(btn => {
-    btn.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      const id = btn.dataset.id;
-      btn.disabled = true;
-      try {
-        const response = await fetch(`/api/videos/${id}/like`, {method:'POST', headers:apiHeaders()});
-        const data = await response.json();
-        if (data.ok) {
-          btn.classList.toggle('liked', data.liked);
-          btn.querySelector('.like-count').textContent = data.likes_count;
-        }
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  });
-
-  const observer = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      const video = entry.target.querySelector('.video');
-      const id = entry.target.dataset.id;
-      if (entry.isIntersecting && entry.intersectionRatio > .7) {
-        video.play().catch(()=>{});
-        if (!viewed.has(id)) {
-          viewed.add(id);
-          fetch(`/api/videos/${id}/view`, {method:'POST', headers:apiHeaders()})
-            .then(r=>r.json())
-            .then(data => {
-              if (data.ok) entry.target.querySelector('.view-count').textContent = data.views_count;
-            }).catch(()=>{});
-        }
-      } else {
-        video.pause();
-      }
-    });
-  }, {threshold:[.7]});
-
-  document.querySelectorAll('.slide').forEach(slide => observer.observe(slide));
-}
-
-async function loadFeed() {
-  const response = await fetch('/api/feed', {headers:apiHeaders()});
-  const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.detail || data.error || 'Не удалось загрузить ленту');
-  renderFeed(data.videos);
-}
-
-async function loadProfile() {
-  const response = await fetch('/api/me', {headers:apiHeaders()});
-  const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.detail || 'Ошибка профиля');
-  const u = data.user;
-  const avatar = u.avatar_url ? `<img class="avatar" src="${esc(u.avatar_url)}">` : '<div class="avatar"></div>';
-  document.getElementById('profileContent').innerHTML = `
-    <div class="profile">
-      ${avatar}
-      <div>
-        <div><b>${esc(u.first_name || '')} ${esc(u.last_name || '')}</b></div>
-        <div class="status">@${esc(u.username || 'username не указан')}</div>
-        <div class="stats">
-          <span>Видео: ${u.videos_count}</span>
-          <span>Подписчики: ${u.followers_count}</span>
-          <span>Подписки: ${u.following_count}</span>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-document.getElementById('uploadBtn').onclick = () => document.getElementById('uploadPanel').classList.add('panel-open');
-document.getElementById('closeUpload').onclick = () => document.getElementById('uploadPanel').classList.remove('panel-open');
-document.getElementById('profileBtn').onclick = async () => {
-  document.getElementById('profilePanel').classList.add('panel-open');
-  try { await loadProfile(); } catch (e) { document.getElementById('profileContent').textContent = e.message; }
-};
-document.getElementById('closeProfile').onclick = () => document.getElementById('profilePanel').classList.remove('panel-open');
-
-document.getElementById('publishBtn').onclick = async () => {
-  const file = document.getElementById('videoFile').files[0];
-  const caption = document.getElementById('caption').value.trim();
-  const status = document.getElementById('uploadStatus');
-
-  if (!file) {
-    status.textContent = 'Выберите видео.';
-    return;
-  }
-
-  if (file.size > 50 * 1024 * 1024) {
-    status.textContent = 'Максимальный размер — 50 МБ.';
-    return;
-  }
-
-  const form = new FormData();
-  form.append('video', file);
-  form.append('caption', caption);
-
-  const button = document.getElementById('publishBtn');
-  button.disabled = true;
-  status.textContent = 'Загрузка видео…';
-
-  try {
-    const response = await fetch('/api/videos/upload', {
-      method:'POST',
-      headers: apiHeaders(),
-      body: form
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.detail || 'Не удалось загрузить видео');
-
-    status.textContent = 'Готово!';
-    document.getElementById('videoFile').value = '';
-    document.getElementById('caption').value = '';
-    document.getElementById('uploadPanel').classList.remove('panel-open');
-    await loadFeed();
-    feed.scrollTo({top:0, behavior:'smooth'});
-  } catch (e) {
-    status.textContent = e.message;
-  } finally {
-    button.disabled = false;
-  }
-};
-
-(async function start() {
-  try {
-    await auth();
-    await loadFeed();
-  } catch (e) {
-    feed.innerHTML = `<div class="empty">❌ ${esc(e.message)}</div>`;
-  }
-})();
-</script>
-</body>
-</html>
+const tg=window.Telegram?.WebApp,feed=document.getElementById('feed');let initData='',viewed=new Set(),currentCommentVideo=null;
+const $=id=>document.getElementById(id); const headers=(x={})=>({'X-Telegram-Init-Data':initData,...x});
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function toast(t){$('toast').textContent=t;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),1800)}
+function openPanel(id){$(id).classList.add('open')} function closePanels(){document.querySelectorAll('.panel').forEach(x=>x.classList.remove('open'))}
+async function auth(){if(!tg)throw Error('Откройте приложение через Telegram.');tg.ready();tg.expand();initData=tg.initData||'';if(!initData)throw Error('Откройте Mini App через бота заново.');let r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData})}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.error||'Ошибка авторизации')}
+function renderFeed(vs){if(!vs.length){feed.innerHTML='<div class="empty">Пока нет видео.<br><br>Нажми ＋ и опубликуй первое Shorts.</div>';return}feed.innerHTML=vs.map(v=>`<section class="slide" data-id="${v.id}"><video class="video" src="${esc(v.video_url)}" playsinline muted loop preload="metadata"></video><div class="shade"></div><div class="vignette"></div><div class="side"><button class="action like-btn ${v.liked?'liked':''}" data-id="${v.id}">♥<span class="count like-count">${v.likes_count||0}</span></button><button class="action comment-btn" data-id="${v.id}">◌<span class="count">${v.comments_count||0}</span></button><button class="action">↗<span class="count">${v.views_count||0}</span></button></div><div class="meta"><div class="author">@${esc(v.username||v.first_name||'user')} <button class="follow-mini" data-user="${v.user_id}">Подписаться</button></div><div class="caption">${esc(v.caption||'')}</div><div class="sound">♪ Original sound · Telegram Shorts</div></div></section>`).join('');
+ document.querySelectorAll('.video').forEach(v=>v.onclick=()=>v.paused?v.play():v.pause());
+ document.querySelectorAll('.like-btn').forEach(b=>b.onclick=async e=>{e.stopPropagation();b.disabled=true;try{let r=await fetch('/api/videos/'+b.dataset.id+'/like',{method:'POST',headers:headers()}),d=await r.json();if(d.ok){b.classList.toggle('liked',d.liked);b.querySelector('.like-count').textContent=d.likes_count}}finally{b.disabled=false}});
+ document.querySelectorAll('.comment-btn').forEach(b=>b.onclick=e=>{e.stopPropagation();currentCommentVideo=b.dataset.id;openComments(currentCommentVideo)});
+ document.querySelectorAll('.follow-mini').forEach(b=>b.onclick=async e=>{e.stopPropagation();let r=await fetch('/api/users/'+b.dataset.user+'/follow',{method:'POST',headers:headers()}),d=await r.json();if(d.ok){b.textContent=d.following?'Вы подписаны':'Подписаться';toast(d.following?'Подписка оформлена':'Подписка отменена')}});
+ const ob=new IntersectionObserver(es=>es.forEach(e=>{let v=e.target.querySelector('.video'),id=e.target.dataset.id;if(e.isIntersecting&&e.intersectionRatio>.7){v.play().catch(()=>{});if(!viewed.has(id)){viewed.add(id);fetch('/api/videos/'+id+'/view',{method:'POST',headers:headers()}).then(r=>r.json()).then(d=>{if(d.ok)e.target.querySelector('.side .action:last-child .count').textContent=d.views_count})}}else v.pause()}),{threshold:[.7]});document.querySelectorAll('.slide').forEach(x=>ob.observe(x));}
+async function loadFeed(){let r=await fetch('/api/feed',{headers:headers()}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.detail||d.error||'Не удалось загрузить ленту');renderFeed(d.videos)}
+async function loadProfile(userId=null){let url=userId?'/api/profile/'+userId:'/api/me';let r=await fetch(url,{headers:headers()}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.detail||'Ошибка профиля');let u=d.user,avatar=u.avatar_url?`<img class="avatar" src="${esc(u.avatar_url)}">`:'<div class="avatar"></div>';let vids=d.videos||[];$('profileContent').innerHTML=`<div class="profile-head">${avatar}<div><b>${esc((u.first_name||'')+' '+(u.last_name||''))}</b><div class="status">@${esc(u.username||'username')}</div></div></div><div class="stats"><span><b>${u.videos_count}</b> видео</span><span><b>${u.followers_count}</b> подписчиков</span><span><b>${u.following_count}</b> подписок</span></div><div class="bio">${esc(u.bio||'Создаю и смотрю короткие видео.')}</div>${userId?`<div class="profile-actions"><button class="primary" id="profileFollow">${u.following?'Вы подписаны':'Подписаться'}</button></div>`:''}<div class="grid">${vids.map(v=>`<video src="${esc(v.video_url)}" muted playsinline controls preload="metadata"></video>`).join('')}</div>`;if(userId)$('profileFollow').onclick=async()=>{let r=await fetch('/api/users/'+userId+'/follow',{method:'POST',headers:headers()}),x=await r.json();if(x.ok){$('profileFollow').textContent=x.following?'Вы подписаны':'Подписаться';u.following=x.following}}}
+async function openComments(id){openPanel('commentsPanel');$('commentsList').innerHTML='Загрузка…';let r=await fetch('/api/videos/'+id+'/comments',{headers:headers()}),d=await r.json();$('commentsList').innerHTML=(d.comments||[]).map(c=>`<div class="comment">${c.avatar_url?`<img class="avatar" src="${esc(c.avatar_url)}">`:'<div class="avatar"></div>'}<div><b>@${esc(c.username||c.first_name||'user')}</b><p>${esc(c.text)}</p></div></div>`).join('')||'<div class="status">Пока нет комментариев.</div>'}
+async function search(){let q=$('searchInput').value.trim();if(!q){$('searchResults').innerHTML='';return}let r=await fetch('/api/search?q='+encodeURIComponent(q),{headers:headers()}),d=await r.json();$('searchResults').innerHTML=(d.users||[]).map(u=>`<div class="result">${u.avatar_url?`<img class="avatar" src="${esc(u.avatar_url)}">`:'<div class="avatar"></div>'}<div><b>@${esc(u.username||u.first_name||'user')}</b><div class="status">${u.followers_count} подписчиков</div></div><button data-user="${u.id}" class="find-follow">Подписаться</button></div>`).join('')+(d.videos||[]).map(v=>`<div class="result"><div><b>${esc(v.caption||'Видео')}</b><div class="status">@${esc(v.username||v.first_name||'user')} · ${v.views_count} просмотров</div></div></div>`).join('')||'<div class="status">Ничего не найдено.</div>';document.querySelectorAll('.find-follow').forEach(b=>b.onclick=async()=>{let r=await fetch('/api/users/'+b.dataset.user+'/follow',{method:'POST',headers:headers()}),d=await r.json();if(d.ok)b.textContent=d.following?'Вы подписаны':'Подписаться'})}
+async function notifications(){openPanel('notifyPanel');let r=await fetch('/api/notifications',{headers:headers()}),d=await r.json();let map={follow:'подписался(ась) на вас',comment:'оставил(а) комментарий к вашему видео'};$('notifyList').innerHTML=(d.notifications||[]).map(n=>`<div class="result">${n.avatar_url?`<img class="avatar" src="${esc(n.avatar_url)}">`:'<div class="avatar"></div>'}<div><b>@${esc(n.username||n.first_name||'user')}</b><div class="status">${map[n.type]||'новая активность'}</div></div></div>`).join('')||'<div class="status">Пока нет новых событий.</div>'}
+$('uploadBtn').onclick=()=>openPanel('uploadPanel');$('profileBtn').onclick=async()=>{openPanel('profilePanel');try{await loadProfile()}catch(e){$('profileContent').textContent=e.message}};$('searchBtn').onclick=()=>openPanel('searchPanel');document.querySelectorAll('.close-panel').forEach(b=>b.onclick=closePanels);$('searchGo').onclick=search;$('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter')search()});$('commentSend').onclick=async()=>{let t=$('commentInput').value.trim();if(!t||!currentCommentVideo)return;let r=await fetch('/api/videos/'+currentCommentVideo+'/comments',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({text:t})}),d=await r.json();if(d.ok){$('commentInput').value='';await openComments(currentCommentVideo);toast('Комментарий добавлен')}};
+$('publishBtn').onclick=async()=>{let file=$('videoFile').files[0],status=$('uploadStatus');if(!file){status.textContent='Выберите видео.';return}if(file.size>50*1024*1024){status.textContent='Максимальный размер — 50 МБ.';return}let f=new FormData();f.append('video',file);f.append('caption',$('caption').value.trim());$('publishBtn').disabled=true;status.textContent='Загрузка…';try{let r=await fetch('/api/videos/upload',{method:'POST',headers:headers(),body:f}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.detail||'Ошибка загрузки');closePanels();$('videoFile').value='';$('caption').value='';await loadFeed();feed.scrollTo({top:0,behavior:'smooth'});toast('Видео опубликовано')}catch(e){status.textContent=e.message}finally{$('publishBtn').disabled=false}};
+document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{let n=b.dataset.nav;if(n==='home')closePanels();if(n==='search')openPanel('searchPanel');if(n==='profile'){$('profileBtn').click()}if(n==='notify')notifications()});
+(async()=>{try{await auth();await loadFeed()}catch(e){feed.innerHTML='<div class="empty">❌ '+esc(e.message)+'</div>}})();
+</script></body></html>
