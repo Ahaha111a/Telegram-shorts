@@ -1,4 +1,6 @@
--- Telegram Shorts database schema
+-- Telegram Shorts: MVP schema
+-- Safe to run multiple times.
+
 create table if not exists users (
     id bigint primary key,
     username text,
