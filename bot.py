@@ -401,41 +401,58 @@ async def get_me(request: Request):
 
 
 @app.get("/api/feed")
-async def get_feed(request: Request):
+async def get_feed(request: Request, mode: str = "recommended", offset: int = 0, limit: int = 30):
     user = await get_authenticated_user(request)
     pool = await get_db_pool()
+    user_id = int(user["id"])
+    mode = mode if mode in {"recommended", "following", "latest"} else "recommended"
+    offset = max(0, min(int(offset), 5000))
+    limit = max(1, min(int(limit), 50))
 
     async with pool.acquire() as connection:
-        rows = await connection.fetch(
-            """
+        if mode == "following":
+            order_sql = "v.created_at desc"
+            where_extra = "and exists (select 1 from follows ff where ff.follower_id=$1 and ff.following_id=v.user_id)"
+        elif mode == "latest":
+            order_sql = "v.created_at desc"
+            where_extra = ""
+        else:
+            # Простая детерминированная рекомендация без отдельного ML-сервиса:
+            # свежесть + просмотры + лайки + комментарии + подписки.
+            order_sql = """(
+                (extract(epoch from (now() - v.created_at)) / 3600.0) * -0.45
+                + ln(1 + v.views_count) * 0.18
+                + ln(1 + v.likes_count) * 0.70
+                + ln(1 + v.comments_count) * 0.95
+                + case when exists (select 1 from follows ff where ff.follower_id=$1 and ff.following_id=v.user_id) then 1.80 else 0 end
+            ) desc, v.created_at desc"""
+            where_extra = ""
+
+        query = f"""
             select
-                v.id,
-                v.user_id,
-                v.video_url,
-                v.caption,
-                v.views_count,
-                v.likes_count,
-                v.comments_count,
-                v.created_at,
-                u.username,
-                u.first_name,
-                u.last_name,
-                u.avatar_url,
+                v.id, v.user_id, v.video_url, v.caption,
+                v.views_count, v.likes_count, v.comments_count, v.created_at,
+                u.username, u.first_name, u.last_name, u.avatar_url,
                 exists(
-                    select 1
-                    from video_likes vl
-                    where vl.video_id = v.id and vl.user_id = $1
+                    select 1 from video_likes vl
+                    where vl.video_id=v.id and vl.user_id=$1
                 ) as liked
             from videos v
-            join users u on u.id = v.user_id
-            where not v.is_deleted
-            order by v.created_at desc
-            limit 30
-            """,
-            int(user["id"]),
-        )
+            join users u on u.id=v.user_id
+            where not v.is_deleted {where_extra}
+            order by {order_sql}
+            limit $2 offset $3
+        """
+        rows = await connection.fetch(query, user_id, limit, offset)
 
-    return {"ok": True, "videos": [dict(row) for row in rows]}
+    return {"ok": True, "mode": mode, "offset": offset, "limit": limit, "videos": [dict(row) for row in rows]}
+
+
+@app.get("/api/feed/following")
+async def get_following_feed(request: Request, offset: int = 0, limit: int = 30):
+    # Удобный отдельный endpoint для будущего переключателя «Подписки».
+    request.scope["query_string"] = f"mode=following&offset={offset}&limit={limit}".encode()
+    return await get_feed(request, mode="following", offset=offset, limit=limit)
 
 
 @app.post("/api/videos/upload")
