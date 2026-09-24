@@ -124,20 +124,64 @@ async def init_db():
 
 
 async def init_storage():
-    url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/bucket"
+    """Проверяет наличие Storage bucket и создаёт его только если его действительно нет.
+
+    Supabase может вернуть HTTP 400 с code=BucketAlreadyExists вместо 409,
+    поэтому проверяем bucket через GET и отдельно обрабатываем оба варианта.
+    """
+    base_url = SUPABASE_URL.rstrip("/")
+    bucket_url = f"{base_url}/storage/v1/bucket/{STORAGE_BUCKET}"
+    create_url = f"{base_url}/storage/v1/bucket"
     headers = {
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Content-Type": "application/json",
     }
     payload = {"id": STORAGE_BUCKET, "name": STORAGE_BUCKET, "public": True}
+
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        if response.status_code not in (200, 201, 409):
+        # Сначала проверяем bucket. Это делает запуск идемпотентным:
+        # существующий bucket никогда не считается ошибкой.
+        check = await client.get(bucket_url, headers=headers)
+        if check.status_code == 200:
+            print(f"Supabase Storage: bucket {STORAGE_BUCKET} уже существует.")
+            return
+
+        if check.status_code not in (404,):
             raise RuntimeError(
-                f"Не удалось создать Storage bucket: {response.status_code} {response.text[:300]}"
+                f"Не удалось проверить Storage bucket: "
+                f"{check.status_code} {check.text[:300]}"
             )
-    print("Supabase Storage: bucket videos готов.")
+
+        # Bucket отсутствует — создаём его.
+        create_headers = {**headers, "Content-Type": "application/json"}
+        response = await client.post(
+            create_url, headers=create_headers, json=payload
+        )
+
+        if response.status_code in (200, 201):
+            print(f"Supabase Storage: bucket {STORAGE_BUCKET} создан.")
+            return
+
+        # При параллельном запуске другой процесс мог создать bucket
+        # между GET и POST. Supabase в таком случае иногда отвечает 409,
+        # а иногда 400 с code=BucketAlreadyExists. Оба случая безопасны.
+        try:
+            error_data = response.json()
+        except ValueError:
+            error_data = {}
+
+        if (
+            response.status_code == 409
+            or error_data.get("code") == "BucketAlreadyExists"
+            or error_data.get("message") == "The resource already exists"
+        ):
+            print(f"Supabase Storage: bucket {STORAGE_BUCKET} уже существует.")
+            return
+
+        raise RuntimeError(
+            f"Не удалось создать Storage bucket: "
+            f"{response.status_code} {response.text[:300]}"
+        )
 
 
 async def save_user_data(user_data):
