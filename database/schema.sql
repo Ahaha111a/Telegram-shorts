@@ -20,6 +20,8 @@ create table if not exists videos (
     views_count bigint not null default 0,
     likes_count bigint not null default 0,
     comments_count bigint not null default 0,
+    is_deleted boolean not null default false,
+    deleted_at timestamptz,
     created_at timestamptz not null default now()
 );
 
@@ -62,3 +64,22 @@ create index if not exists idx_follows_following_id on follows (following_id);
 
 create table if not exists notifications (id bigint generated always as identity primary key,user_id bigint not null references users(id) on delete cascade,actor_id bigint references users(id) on delete cascade,type text not null,video_id bigint references videos(id) on delete cascade,created_at timestamptz not null default now(),is_read boolean not null default false);
 create index if not exists idx_notifications_user_id on notifications(user_id,created_at desc);
+
+
+-- Safe migrations for existing installations.
+alter table videos add column if not exists is_deleted boolean not null default false;
+alter table videos add column if not exists deleted_at timestamptz;
+
+create table if not exists reports (
+    id bigint generated always as identity primary key,
+    reporter_id bigint not null references users(id) on delete cascade,
+    video_id bigint not null references videos(id) on delete cascade,
+    reason text not null,
+    details text,
+    status text not null default 'open',
+    created_at timestamptz not null default now(),
+    resolved_at timestamptz,
+    resolved_by bigint references users(id) on delete set null,
+    unique (reporter_id, video_id)
+);
+create index if not exists idx_reports_status_created_at on reports(status, created_at desc);
