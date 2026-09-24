@@ -4,6 +4,7 @@ import json
 import hmac
 import hashlib
 import time
+import re
 from pathlib import Path
 from urllib.parse import parse_qsl, quote
 
@@ -44,7 +45,12 @@ db_pool = None
 async def get_db_pool():
     global db_pool
     if db_pool is None:
-        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        db_pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=1,
+            max_size=5,
+            statement_cache_size=0,
+        )
     return db_pool
 
 
@@ -108,6 +114,8 @@ async def init_db():
 
         alter table videos add column if not exists is_deleted boolean not null default false;
         alter table videos add column if not exists deleted_at timestamptz;
+        alter table videos add column if not exists hashtags text[] not null default '{}';
+        create index if not exists idx_videos_hashtags on videos using gin (hashtags);
         create table if not exists reports (
             id bigint generated always as identity primary key,
             reporter_id bigint not null references users(id) on delete cascade,
@@ -436,7 +444,7 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
         query = f"""
             select
                 v.id, v.user_id, v.video_url, v.caption,
-                v.views_count, v.likes_count, v.comments_count, v.created_at,
+                v.views_count, v.likes_count, v.comments_count, v.hashtags, v.created_at,
                 u.username, u.first_name, u.last_name, u.avatar_url,
                 exists(
                     select 1 from video_likes vl
@@ -460,6 +468,17 @@ async def get_following_feed(request: Request, offset: int = 0, limit: int = 30)
     return await get_feed(request, mode="following", offset=offset, limit=limit)
 
 
+def extract_hashtags(text: str):
+    tags = []
+    for raw in re.findall(r"(?<![\w])#([A-Za-zА-Яа-яЁё0-9_]{2,40})", text or ""):
+        tag = raw.lower()
+        if tag not in tags:
+            tags.append(tag)
+        if len(tags) >= 10:
+            break
+    return tags
+
+
 @app.post("/api/videos/upload")
 async def upload_video(
     request: Request,
@@ -473,15 +492,18 @@ async def upload_video(
 
     pool = await get_db_pool()
     async with pool.acquire() as connection:
+        clean_caption = caption.strip()[:500] if caption else ""
+        tags = extract_hashtags(clean_caption)
         row = await connection.fetchrow(
             """
-            insert into videos (user_id, video_url, caption)
-            values ($1, $2, $3)
-            returning id, video_url, caption, created_at
+            insert into videos (user_id, video_url, caption, hashtags)
+            values ($1, $2, $3, $4)
+            returning id, video_url, caption, hashtags, created_at
             """,
             user_id,
             public_url,
-            caption.strip()[:500] if caption else None,
+            clean_caption or None,
+            tags,
         )
 
     return {"ok": True, "video": dict(row)}
@@ -643,20 +665,82 @@ async def get_profile(user_id: int, request: Request):
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
           from users u where u.id=$2""", int(viewer["id"]), user_id)
-        videos = await connection.fetch("select id,video_url,caption,views_count,likes_count,comments_count,created_at from videos where user_id=$1 and not is_deleted order by created_at desc limit 60", user_id)
+        videos = await connection.fetch("select id,video_url,caption,hashtags,views_count,likes_count,comments_count,created_at from videos where user_id=$1 and not is_deleted order by created_at desc limit 60", user_id)
     if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
     return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
 
 @app.get("/api/search")
 async def search(q: str = "", request: Request = None):
-    if request is None: raise HTTPException(status_code=400, detail="Запрос не указан")
-    await get_authenticated_user(request); query=q.strip()[:80]
-    if not query: return {"ok":True,"users":[],"videos":[]}
-    p=await get_db_pool(); pattern=f"%{query}%"
-    async with p.acquire() as c:
-        users=await c.fetch("""select id,username,first_name,last_name,avatar_url,(select count(*) from follows f where f.following_id=u.id) as followers_count from users u where coalesce(username,'') ilike $1 or coalesce(first_name,'') ilike $1 or coalesce(last_name,'') ilike $1 order by followers_count desc limit 20""",pattern)
-        videos=await c.fetch("""select v.id,v.video_url,v.caption,v.views_count,v.likes_count,u.id as user_id,u.username,u.first_name,u.avatar_url from videos v join users u on u.id=v.user_id where not v.is_deleted and (coalesce(v.caption,'') ilike $1 or coalesce(u.username,'') ilike $1) order by v.created_at desc limit 20""",pattern)
-    return {"ok":True,"users":[dict(x) for x in users],"videos":[dict(x) for x in videos]}
+    if request is None:
+        raise HTTPException(status_code=400, detail="Запрос не указан")
+    await get_authenticated_user(request)
+    query = q.strip()[:80]
+    if not query:
+        return {"ok": True, "users": [], "videos": [], "hashtags": []}
+    pool = await get_db_pool()
+    raw = query.lstrip("#").lower()
+    pattern = f"%{query}%"
+    async with pool.acquire() as connection:
+        users = await connection.fetch(
+            """select id,username,first_name,last_name,avatar_url,
+                (select count(*) from follows f where f.following_id=u.id) as followers_count
+               from users u
+               where coalesce(username,'') ilike $1
+                  or coalesce(first_name,'') ilike $1
+                  or coalesce(last_name,'') ilike $1
+               order by followers_count desc limit 20""",
+            pattern,
+        )
+        videos = await connection.fetch(
+            """select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,
+                u.id as user_id,u.username,u.first_name,u.avatar_url
+               from videos v join users u on u.id=v.user_id
+               where not v.is_deleted
+                 and (coalesce(v.caption,'') ilike $1 or coalesce(u.username,'') ilike $1 or $2 = any(v.hashtags))
+               order by v.created_at desc limit 20""",
+            pattern, raw,
+        )
+        hashtag_rows = await connection.fetch(
+            """select tag, count(*) as videos_count
+               from (select unnest(hashtags) as tag from videos where not is_deleted) h
+               where tag ilike $1
+               group by tag order by videos_count desc, tag asc limit 20""",
+            f"%{raw}%",
+        )
+    return {
+        "ok": True,
+        "users": [dict(x) for x in users],
+        "videos": [dict(x) for x in videos],
+        "hashtags": [dict(x) for x in hashtag_rows],
+    }
+
+
+@app.get("/api/hashtags/trending")
+async def trending_hashtags(request: Request):
+    await get_authenticated_user(request)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        rows = await connection.fetch(
+            """select tag, count(*) as videos_count
+               from (select unnest(hashtags) as tag from videos where not is_deleted) h
+               group by tag order by videos_count desc, tag asc limit 12"""
+        )
+    return {"ok": True, "hashtags": [dict(row) for row in rows]}
+
+
+@app.patch("/api/me")
+async def update_me(request: Request):
+    user = await get_authenticated_user(request)
+    body = await request.json()
+    bio = str(body.get("bio", "")).strip()[:160]
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(
+            "update users set bio=$1 where id=$2 returning id,username,first_name,last_name,avatar_url,bio",
+            bio or None, int(user["id"])
+        )
+    return {"ok": True, "user": dict(row)}
+
 
 @app.get("/api/videos/{video_id}/comments")
 async def get_comments(video_id:int, request:Request):
