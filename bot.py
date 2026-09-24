@@ -107,7 +107,18 @@ async def init_db():
         create index if not exists idx_videos_user_id on videos (user_id);
         create index if not exists idx_video_views_video_id on video_views (video_id);
         create index if not exists idx_comments_video_id on comments (video_id);
+        create table if not exists notifications (
+            id bigint generated always as identity primary key,
+            user_id bigint not null references users(id) on delete cascade,
+            actor_id bigint references users(id) on delete cascade,
+            type text not null,
+            video_id bigint references videos(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            is_read boolean not null default false
+        );
+
         create index if not exists idx_follows_following_id on follows (following_id);
+        create index if not exists idx_notifications_user_id on notifications (user_id, created_at desc);
         """)
     print("Supabase: таблицы успешно проверены/созданы.")
 
@@ -473,6 +484,77 @@ async def toggle_like(video_id: int, request: Request):
         raise HTTPException(status_code=404, detail="Видео не найдено")
 
     return {"ok": True, "liked": liked, "likes_count": row["likes_count"]}
+
+
+@app.get("/api/profile/{user_id}")
+async def get_profile(user_id: int, request: Request):
+    viewer = await get_authenticated_user(request)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        user_row = await connection.fetchrow("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url,u.bio,
+          (select count(*) from videos v where v.user_id=u.id) as videos_count,
+          (select count(*) from follows f where f.following_id=u.id) as followers_count,
+          (select count(*) from follows f where f.follower_id=u.id) as following_count,
+          exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
+          from users u where u.id=$2""", int(viewer["id"]), user_id)
+        videos = await connection.fetch("select id,video_url,caption,views_count,likes_count,comments_count,created_at from videos where user_id=$1 order by created_at desc limit 60", user_id)
+    if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
+    return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
+
+@app.get("/api/search")
+async def search(q: str = "", request: Request = None):
+    if request is None: raise HTTPException(status_code=400, detail="Запрос не указан")
+    await get_authenticated_user(request); query=q.strip()[:80]
+    if not query: return {"ok":True,"users":[],"videos":[]}
+    p=await get_db_pool(); pattern=f"%{query}%"
+    async with p.acquire() as c:
+        users=await c.fetch("""select id,username,first_name,last_name,avatar_url,(select count(*) from follows f where f.following_id=u.id) as followers_count from users u where coalesce(username,'') ilike $1 or coalesce(first_name,'') ilike $1 or coalesce(last_name,'') ilike $1 order by followers_count desc limit 20""",pattern)
+        videos=await c.fetch("""select v.id,v.video_url,v.caption,v.views_count,v.likes_count,u.id as user_id,u.username,u.first_name,u.avatar_url from videos v join users u on u.id=v.user_id where coalesce(v.caption,'') ilike $1 or coalesce(u.username,'') ilike $1 order by v.created_at desc limit 20""",pattern)
+    return {"ok":True,"users":[dict(x) for x in users],"videos":[dict(x) for x in videos]}
+
+@app.get("/api/videos/{video_id}/comments")
+async def get_comments(video_id:int, request:Request):
+    await get_authenticated_user(request); p=await get_db_pool()
+    async with p.acquire() as c:
+        rows=await c.fetch("""select c.id,c.text,c.created_at,u.id as user_id,u.username,u.first_name,u.avatar_url from comments c join users u on u.id=c.user_id where c.video_id=$1 order by c.created_at desc limit 100""",video_id)
+    return {"ok":True,"comments":[dict(x) for x in rows]}
+
+@app.post("/api/videos/{video_id}/comments")
+async def add_comment(video_id:int, request:Request):
+    user=await get_authenticated_user(request); text=str((await request.json()).get("text","")).strip()[:500]
+    if not text: raise HTTPException(status_code=400,detail="Комментарий не может быть пустым")
+    p=await get_db_pool()
+    async with p.acquire() as c:
+        owner=await c.fetchval("select user_id from videos where id=$1",video_id)
+        if owner is None: raise HTTPException(status_code=404,detail="Видео не найдено")
+        row=await c.fetchrow("insert into comments(video_id,user_id,text) values($1,$2,$3) returning id,text,created_at",video_id,int(user["id"]),text)
+        await c.execute("update videos set comments_count=comments_count+1 where id=$1",video_id)
+        if int(owner)!=int(user["id"]): await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
+    return {"ok":True,"comment":dict(row)}
+
+@app.post("/api/users/{user_id}/follow")
+async def toggle_follow(user_id:int, request:Request):
+    user=await get_authenticated_user(request); follower=int(user["id"])
+    if follower==user_id: raise HTTPException(status_code=400,detail="Нельзя подписаться на себя")
+    p=await get_db_pool()
+    async with p.acquire() as c:
+        exists=await c.fetchval("select 1 from follows where follower_id=$1 and following_id=$2",follower,user_id)
+        if exists:
+            await c.execute("delete from follows where follower_id=$1 and following_id=$2",follower,user_id); following=False
+        else:
+            if await c.fetchval("select 1 from users where id=$1",user_id) is None: raise HTTPException(status_code=404,detail="Пользователь не найден")
+            await c.execute("insert into follows(follower_id,following_id) values($1,$2) on conflict do nothing",follower,user_id); following=True
+            await c.execute("insert into notifications(user_id,actor_id,type) values($1,$2,'follow')",user_id,follower)
+        count=await c.fetchval("select count(*) from follows where following_id=$1",user_id)
+    return {"ok":True,"following":following,"followers_count":count}
+
+@app.get("/api/notifications")
+async def get_notifications(request:Request):
+    user=await get_authenticated_user(request); p=await get_db_pool()
+    async with p.acquire() as c:
+        rows=await c.fetch("""select n.id,n.type,n.video_id,n.created_at,n.is_read,u.username,u.first_name,u.avatar_url from notifications n left join users u on u.id=n.actor_id where n.user_id=$1 order by n.created_at desc limit 50""",int(user["id"]))
+        await c.execute("update notifications set is_read=true where user_id=$1",int(user["id"]))
+    return {"ok":True,"notifications":[dict(x) for x in rows]}
 
 
 DIST_DIR = Path("dist")
