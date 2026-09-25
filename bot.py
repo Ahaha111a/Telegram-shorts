@@ -62,6 +62,7 @@ async def init_db():
         create table if not exists users (
             id bigint primary key,
             username text,
+            custom_username text,
             first_name text,
             last_name text,
             avatar_url text,
@@ -129,6 +130,7 @@ async def init_db():
             check (follower_id <> following_id)
         );
 
+        alter table users add column if not exists custom_username text;
         alter table videos add column if not exists is_deleted boolean not null default false;
         alter table videos add column if not exists deleted_at timestamptz;
         alter table videos add column if not exists hashtags text[] not null default '{}';
@@ -242,7 +244,7 @@ async def save_user_data(user_data):
             insert into users (id, username, first_name, last_name, avatar_url)
             values ($1, $2, $3, $4, $5)
             on conflict (id) do update set
-                username = excluded.username,
+                username = case when users.custom_username is null then excluded.username else users.username end,
                 first_name = excluded.first_name,
                 last_name = excluded.last_name,
                 avatar_url = excluded.avatar_url
@@ -424,10 +426,11 @@ async def get_me(request: Request):
         row = await connection.fetchrow(
             """
             select
-                u.id, u.username, u.first_name, u.last_name, u.avatar_url, u.bio,
+                u.id, coalesce(u.custom_username,u.username) as username, u.first_name, u.last_name, u.avatar_url, u.bio,
                 (select count(*) from videos v where v.user_id = u.id and not v.is_deleted) as videos_count,
                 (select count(*) from follows f where f.following_id = u.id) as followers_count,
-                (select count(*) from follows f where f.follower_id = u.id) as following_count
+                (select count(*) from follows f where f.follower_id = u.id) as following_count,
+                (select coalesce(sum(v.likes_count),0) from videos v where v.user_id=u.id and not v.is_deleted) as likes_count
             from users u
             where u.id = $1
             """,
@@ -481,7 +484,7 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
             select
                 v.id, v.user_id, v.video_url, v.caption,
                 v.views_count, v.likes_count, v.comments_count, v.hashtags, v.created_at,
-                u.username, u.first_name, u.last_name, u.avatar_url,
+                coalesce(u.custom_username,u.username) as username, u.first_name, u.last_name, u.avatar_url,
                 exists(
                     select 1 from video_likes vl
                     where vl.video_id=v.id and vl.user_id=$1
@@ -611,6 +614,8 @@ async def report_video(video_id: int, request: Request):
     allowed_reasons = {"spam", "violence", "sexual", "harassment", "copyright", "other"}
     if reason not in allowed_reasons:
         raise HTTPException(status_code=400, detail="Недопустимая причина жалобы")
+    if reason == "other" and not details:
+        raise HTTPException(status_code=400, detail="Для причины «Другое» нужно указать причину")
     pool = await get_db_pool()
     async with pool.acquire() as connection:
         exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
@@ -782,7 +787,7 @@ async def get_saved(request: Request, offset: int = 0, limit: int = 60):
     async with pool.acquire() as connection:
         rows = await connection.fetch("""
             select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
-                   u.username,u.first_name,u.last_name,u.avatar_url, true as saved
+                   coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url, true as saved
             from video_saves s join videos v on v.id=s.video_id join users u on u.id=v.user_id
             where s.user_id=$1 and not v.is_deleted
             order by s.created_at desc limit $2 offset $3
@@ -793,7 +798,7 @@ async def get_saved(request: Request, offset: int = 0, limit: int = 60):
 async def get_followers(user_id: int, request: Request, limit: int = 100):
     viewer = await get_authenticated_user(request); limit=max(1,min(int(limit),100)); pool=await get_db_pool()
     async with pool.acquire() as connection:
-        rows=await connection.fetch("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url,
+        rows=await connection.fetch("""select u.id,coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
             exists(select 1 from follows fx where fx.follower_id=$1 and fx.following_id=u.id) as following
             from follows f join users u on u.id=f.follower_id where f.following_id=$2 order by f.created_at desc limit $3""", int(viewer["id"]), user_id, limit)
     return {"ok":True,"users":[dict(x) for x in rows]}
@@ -802,7 +807,7 @@ async def get_followers(user_id: int, request: Request, limit: int = 100):
 async def get_following(user_id: int, request: Request, limit: int = 100):
     viewer = await get_authenticated_user(request); limit=max(1,min(int(limit),100)); pool=await get_db_pool()
     async with pool.acquire() as connection:
-        rows=await connection.fetch("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url, true as following
+        rows=await connection.fetch("""select u.id,coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url, true as following
             from follows f join users u on u.id=f.following_id where f.follower_id=$1 order by f.created_at desc limit $2""", user_id, limit)
     return {"ok":True,"users":[dict(x) for x in rows]}
 
@@ -827,8 +832,9 @@ async def get_profile(user_id: int, request: Request):
     viewer = await get_authenticated_user(request)
     pool = await get_db_pool()
     async with pool.acquire() as connection:
-        user_row = await connection.fetchrow("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url,u.bio,
+        user_row = await connection.fetchrow("""select u.id,coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,u.bio,
           (select count(*) from videos v where v.user_id=u.id and not v.is_deleted) as videos_count,
+          (select coalesce(sum(v.likes_count),0) from videos v where v.user_id=u.id and not v.is_deleted) as likes_count,
           (select count(*) from follows f where f.following_id=u.id) as followers_count,
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
@@ -850,10 +856,10 @@ async def search(q: str = "", request: Request = None):
     pattern = f"%{query}%"
     async with pool.acquire() as connection:
         users = await connection.fetch(
-            """select id,username,first_name,last_name,avatar_url,
+            """select id,coalesce(custom_username,username) as username,first_name,last_name,avatar_url,
                 (select count(*) from follows f where f.following_id=u.id) as followers_count
                from users u
-               where coalesce(username,'') ilike $1
+               where coalesce(custom_username,username,'') ilike $1
                   or coalesce(first_name,'') ilike $1
                   or coalesce(last_name,'') ilike $1
                order by followers_count desc limit 20""",
@@ -861,10 +867,10 @@ async def search(q: str = "", request: Request = None):
         )
         videos = await connection.fetch(
             """select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,
-                u.id as user_id,u.username,u.first_name,u.avatar_url
+                u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url
                from videos v join users u on u.id=v.user_id
                where not v.is_deleted
-                 and (coalesce(v.caption,'') ilike $1 or coalesce(u.username,'') ilike $1 or $2 = any(v.hashtags))
+                 and (coalesce(v.caption,'') ilike $1 or coalesce(u.custom_username,u.username,'') ilike $1 or $2 = any(v.hashtags))
                order by v.created_at desc limit 20""",
             pattern, raw,
         )
@@ -900,12 +906,28 @@ async def trending_hashtags(request: Request):
 async def update_me(request: Request):
     user = await get_authenticated_user(request)
     body = await request.json()
+    first_name = str(body.get("first_name", "")).strip()[:64]
+    username = str(body.get("username", "")).strip().lstrip("@").lower()[:32]
     bio = str(body.get("bio", "")).strip()[:160]
+    if username and not re.fullmatch(r"[a-zA-Z0-9_]{3,32}", username):
+        raise HTTPException(status_code=400, detail="Username: только латинские буквы, цифры и _, от 3 до 32 символов")
     pool = await get_db_pool()
     async with pool.acquire() as connection:
+        if username:
+            taken = await connection.fetchval(
+                "select 1 from users where lower(coalesce(custom_username,username))=$1 and id<>$2",
+                username, int(user["id"])
+            )
+            if taken:
+                raise HTTPException(status_code=409, detail="Этот username уже занят")
         row = await connection.fetchrow(
-            "update users set bio=$1 where id=$2 returning id,username,first_name,last_name,avatar_url,bio",
-            bio or None, int(user["id"])
+            """update users set
+                first_name=coalesce(nullif($1,''), first_name),
+                custom_username=case when $2<>'' then $2 else custom_username end,
+                bio=$3
+               where id=$4
+               returning id,coalesce(custom_username,username) as username,first_name,last_name,avatar_url,bio""",
+            first_name, username, bio or None, int(user["id"])
         )
     return {"ok": True, "user": dict(row)}
 
