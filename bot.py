@@ -13,7 +13,7 @@ import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -96,6 +96,13 @@ async def init_db():
             primary key (video_id, user_id)
         );
 
+        create table if not exists video_saves (
+            video_id bigint not null references videos(id) on delete cascade,
+            user_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (video_id, user_id)
+        );
+
         create table if not exists comments (
             id bigint generated always as identity primary key,
             video_id bigint not null references videos(id) on delete cascade,
@@ -132,6 +139,8 @@ async def init_db():
         create index if not exists idx_videos_user_id on videos (user_id);
         create index if not exists idx_video_views_video_id on video_views (video_id);
         create index if not exists idx_comments_video_id on comments (video_id);
+        create index if not exists idx_video_saves_user_id on video_saves (user_id, created_at desc);
+        create index if not exists idx_video_saves_video_id on video_saves (video_id);
         create table if not exists notifications (
             id bigint generated always as identity primary key,
             user_id bigint not null references users(id) on delete cascade,
@@ -401,7 +410,7 @@ async def get_me(request: Request):
             """
             select
                 u.id, u.username, u.first_name, u.last_name, u.avatar_url, u.bio,
-                (select count(*) from videos v where v.user_id = u.id) as videos_count,
+                (select count(*) from videos v where v.user_id = u.id and not v.is_deleted) as videos_count,
                 (select count(*) from follows f where f.following_id = u.id) as followers_count,
                 (select count(*) from follows f where f.follower_id = u.id) as following_count
             from users u
@@ -449,7 +458,16 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
                 exists(
                     select 1 from video_likes vl
                     where vl.video_id=v.id and vl.user_id=$1
-                ) as liked
+                ) as liked,
+                exists(
+                    select 1 from video_saves vs
+                    where vs.video_id=v.id and vs.user_id=$1
+                ) as saved
+,
+                exists(
+                    select 1 from follows ff2
+                    where ff2.follower_id=$1 and ff2.following_id=v.user_id
+                ) as following
             from videos v
             join users u on u.id=v.user_id
             where not v.is_deleted {where_extra}
@@ -483,28 +501,39 @@ def extract_hashtags(text: str):
 async def upload_video(
     request: Request,
     video: UploadFile = File(...),
-    caption: str = "",
+    caption: str = Form(default=""),
 ):
     user = await get_authenticated_user(request)
     user_id = int(user["id"])
 
     public_url = await upload_to_storage(video, user_id)
+    clean_caption = caption.strip()[:500] if caption else ""
+    tags = extract_hashtags(clean_caption)
 
-    pool = await get_db_pool()
-    async with pool.acquire() as connection:
-        clean_caption = caption.strip()[:500] if caption else ""
-        tags = extract_hashtags(clean_caption)
-        row = await connection.fetchrow(
-            """
-            insert into videos (user_id, video_url, caption, hashtags)
-            values ($1, $2, $3, $4)
-            returning id, video_url, caption, hashtags, created_at
-            """,
-            user_id,
-            public_url,
-            clean_caption or None,
-            tags,
-        )
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                insert into videos (user_id, video_url, caption, hashtags)
+                values ($1, $2, $3, $4)
+                returning id, video_url, caption, hashtags, created_at
+                """,
+                user_id, public_url, clean_caption or None, tags,
+            )
+    except Exception:
+        # Не оставляем файл-сироту в Storage, если запись в БД не создалась.
+        try:
+            marker = f"/storage/v1/object/public/{STORAGE_BUCKET}/"
+            if marker in public_url:
+                storage_path = public_url.split(marker, 1)[1]
+                delete_url = f"{SUPABASE_URL.rstrip('/')}/storage/v1/object/{STORAGE_BUCKET}/{quote(storage_path, safe='/')}"
+                headers = {"Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}", "apikey": SUPABASE_SERVICE_ROLE_KEY}
+                async with httpx.AsyncClient(timeout=20) as client:
+                    await client.delete(delete_url, headers=headers)
+        except Exception as cleanup_error:
+            print(f"Storage cleanup warning: {cleanup_error}")
+        raise
 
     return {"ok": True, "video": dict(row)}
 
@@ -654,13 +683,79 @@ async def toggle_like(video_id: int, request: Request):
     return {"ok": True, "liked": liked, "likes_count": row["likes_count"]}
 
 
+@app.post("/api/videos/{video_id}/save")
+async def toggle_save(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    user_id = int(user["id"])
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
+        if not exists:
+            raise HTTPException(status_code=404, detail="Видео не найдено")
+        saved = await connection.fetchval("select 1 from video_saves where video_id=$1 and user_id=$2", video_id, user_id)
+        if saved:
+            await connection.execute("delete from video_saves where video_id=$1 and user_id=$2", video_id, user_id)
+            is_saved = False
+        else:
+            await connection.execute("insert into video_saves(video_id,user_id) values($1,$2) on conflict do nothing", video_id, user_id)
+            is_saved = True
+    return {"ok": True, "saved": is_saved}
+
+@app.get("/api/saved")
+async def get_saved(request: Request, offset: int = 0, limit: int = 60):
+    user = await get_authenticated_user(request)
+    offset = max(0, min(int(offset), 5000)); limit = max(1, min(int(limit), 60))
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        rows = await connection.fetch("""
+            select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
+                   u.username,u.first_name,u.last_name,u.avatar_url, true as saved
+            from video_saves s join videos v on v.id=s.video_id join users u on u.id=v.user_id
+            where s.user_id=$1 and not v.is_deleted
+            order by s.created_at desc limit $2 offset $3
+        """, user["id"], limit, offset)
+    return {"ok": True, "videos": [dict(x) for x in rows], "offset": offset, "limit": limit}
+
+@app.get("/api/users/{user_id}/followers")
+async def get_followers(user_id: int, request: Request, limit: int = 100):
+    viewer = await get_authenticated_user(request); limit=max(1,min(int(limit),100)); pool=await get_db_pool()
+    async with pool.acquire() as connection:
+        rows=await connection.fetch("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url,
+            exists(select 1 from follows fx where fx.follower_id=$1 and fx.following_id=u.id) as following
+            from follows f join users u on u.id=f.follower_id where f.following_id=$2 order by f.created_at desc limit $3""", int(viewer["id"]), user_id, limit)
+    return {"ok":True,"users":[dict(x) for x in rows]}
+
+@app.get("/api/users/{user_id}/following")
+async def get_following(user_id: int, request: Request, limit: int = 100):
+    viewer = await get_authenticated_user(request); limit=max(1,min(int(limit),100)); pool=await get_db_pool()
+    async with pool.acquire() as connection:
+        rows=await connection.fetch("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url, true as following
+            from follows f join users u on u.id=f.following_id where f.follower_id=$1 order by f.created_at desc limit $2""", user_id, limit)
+    return {"ok":True,"users":[dict(x) for x in rows]}
+
+@app.delete("/api/comments/{comment_id}")
+async def delete_comment(comment_id: int, request: Request):
+    user=await get_authenticated_user(request); pool=await get_db_pool()
+    async with pool.acquire() as connection:
+        row=await connection.fetchrow("delete from comments where id=$1 and user_id=$2 returning video_id", comment_id, int(user["id"]))
+        if not row: raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
+        await connection.execute("update videos set comments_count=greatest(comments_count-1,0) where id=$1", row["video_id"])
+    return {"ok":True,"deleted":True}
+
+@app.get("/api/notifications/unread-count")
+async def unread_notifications(request: Request):
+    user=await get_authenticated_user(request); pool=await get_db_pool()
+    async with pool.acquire() as connection:
+        count=await connection.fetchval("select count(*) from notifications where user_id=$1 and not is_read", int(user["id"]))
+    return {"ok":True,"count":int(count or 0)}
+
 @app.get("/api/profile/{user_id}")
 async def get_profile(user_id: int, request: Request):
     viewer = await get_authenticated_user(request)
     pool = await get_db_pool()
     async with pool.acquire() as connection:
         user_row = await connection.fetchrow("""select u.id,u.username,u.first_name,u.last_name,u.avatar_url,u.bio,
-          (select count(*) from videos v where v.user_id=u.id) as videos_count,
+          (select count(*) from videos v where v.user_id=u.id and not v.is_deleted) as videos_count,
           (select count(*) from follows f where f.following_id=u.id) as followers_count,
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
