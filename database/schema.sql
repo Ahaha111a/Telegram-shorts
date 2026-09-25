@@ -2,12 +2,14 @@
 create table if not exists users (
   id bigint primary key,
   username text,
+  custom_username text,
   first_name text,
   last_name text,
   avatar_url text,
   bio text,
   created_at timestamptz not null default now()
 );
+alter table users add column if not exists custom_username text;
 create table if not exists videos (
   id bigint generated always as identity primary key,
   user_id bigint not null references users(id) on delete cascade,
