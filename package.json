@@ -1,18 +1,10 @@
 {
-  "name": "telegram-shorts-frontend",
+  "name": "telegram-shorts",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "version": "1.0.0",
+  "description": "Telegram Shorts production Mini App frontend",
   "scripts": {
-    "dev": "vite",
-    "build": "vite",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@vitejs/plugin-react": "^5.0.2",
-    "vite": "^7.1.7",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
-  },
-  "devDependencies": {}
+    "dev": "python -m http.server 4173 -d dist",
+    "build": "python -c \"print('Production build is already in dist/index.html')\""
+  }
 }

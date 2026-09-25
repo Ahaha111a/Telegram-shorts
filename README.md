@@ -1,18 +1,46 @@
-# Telegram Shorts
+# Telegram Shorts — Stable Social v4
 
-Telegram Mini App + bot for vertical short videos.
+Production-ready Telegram Mini App + bot for a vertical short-video feed.
 
-## Frontend
+## Production
 
-The Mini App source is in `src/main.jsx` and `src/style.css`. Railway serves the built `dist/index.html`.
-
-Build locally:
+Railway runs the backend with:
 
 ```bash
-npm install
-npm run build
+python bot.py
 ```
+
+The production Mini App is served directly from `dist/index.html` by the FastAPI app.
+
+## Included
+
+- Telegram WebApp authentication with server-side validation
+- Smooth vertical video feed with autoplay/pause and scroll-snap
+- Recommended / Following switch with stale-request protection
+- Likes, saves, comments, follows and view tracking
+- Saved videos and watch history with vertical viewer
+- Profile, followers/following and profile editing
+- Search for users, hashtags and videos
+- Notifications
+- Reports and moderation endpoints
+- Persistent "Not interested" and "Don't show this author"
+- User blocking and user reports
+- Automatic database/storage initialization
+- `.env.example` included
 
 ## Environment
 
-Copy `.env.example` to `.env` locally and fill the secrets. Never commit real secrets.
+Use `.env.example` as the template for local configuration. Never commit real secrets.
+
+Required Railway variables:
+
+- `BOT_TOKEN`
+- `DATABASE_URL`
+- `WEB_APP_URL`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_TELEGRAM_IDS`
+
+## Important
+
+Do not replace `dist/index.html` with a separate React/Vite build. The current production UI is the tested static Mini App shipped with this archive.

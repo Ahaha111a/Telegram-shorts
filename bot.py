@@ -500,7 +500,12 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
                 ) as following
             from videos v
             join users u on u.id=v.user_id
-            where not v.is_deleted {where_extra}
+            where not v.is_deleted
+              and not exists (select 1 from video_preferences vp where vp.user_id=$1 and vp.video_id=v.id and vp.kind='not_interested')
+              and not exists (select 1 from hidden_authors ha where ha.user_id=$1 and ha.author_id=v.user_id)
+              and not exists (select 1 from user_blocks ub where ub.blocker_id=$1 and ub.blocked_id=v.user_id)
+              and not exists (select 1 from user_blocks ub where ub.blocker_id=v.user_id and ub.blocked_id=$1)
+              {where_extra}
             order by {order_sql}
             limit $2 offset $3
         """
@@ -526,6 +531,82 @@ def extract_hashtags(text: str):
             break
     return tags
 
+
+@app.get("/api/videos/{video_id}")
+async def get_video(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    pool = await get_db_pool()
+    uid = int(user["id"])
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow("""
+            select v.id,v.user_id,v.video_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
+                   coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
+                   exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
+                   exists(select 1 from video_saves vs where vs.video_id=v.id and vs.user_id=$1) as saved,
+                   exists(select 1 from follows f where f.follower_id=$1 and f.following_id=v.user_id) as following
+            from videos v join users u on u.id=v.user_id
+            where v.id=$2 and not v.is_deleted
+              and not exists (select 1 from user_blocks ub where ub.blocker_id=$1 and ub.blocked_id=v.user_id)
+              and not exists (select 1 from user_blocks ub where ub.blocker_id=v.user_id and ub.blocked_id=$1)
+        """, uid, video_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Видео недоступно")
+    return {"ok": True, "video": dict(row)}
+
+@app.post("/api/videos/{video_id}/preference")
+async def video_preference(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    body = await request.json()
+    kind = str(body.get("kind", "")).strip()
+    if kind not in {"not_interested"}:
+        raise HTTPException(status_code=400, detail="Неизвестное действие")
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
+        if not exists: raise HTTPException(status_code=404, detail="Видео не найдено")
+        await connection.execute("insert into video_preferences(user_id,video_id,kind) values($1,$2,$3) on conflict do nothing", int(user["id"]), video_id, kind)
+    return {"ok": True}
+
+@app.post("/api/users/{user_id}/hide")
+async def hide_author(user_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    uid = int(user["id"])
+    if uid == user_id: raise HTTPException(status_code=400, detail="Нельзя скрыть себя")
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from users where id=$1", user_id)
+        if not exists: raise HTTPException(status_code=404, detail="Пользователь не найден")
+        await connection.execute("insert into hidden_authors(user_id,author_id) values($1,$2) on conflict do nothing", uid, user_id)
+    return {"ok": True}
+
+@app.post("/api/users/{user_id}/block")
+async def block_user(user_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    uid = int(user["id"])
+    if uid == user_id: raise HTTPException(status_code=400, detail="Нельзя заблокировать себя")
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from users where id=$1", user_id)
+        if not exists: raise HTTPException(status_code=404, detail="Пользователь не найден")
+        await connection.execute("insert into user_blocks(blocker_id,blocked_id) values($1,$2) on conflict do nothing", uid, user_id)
+        await connection.execute("delete from follows where (follower_id=$1 and following_id=$2) or (follower_id=$2 and following_id=$1)", uid, user_id)
+    return {"ok": True, "blocked": True}
+
+@app.post("/api/users/{user_id}/report")
+async def report_user(user_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    uid = int(user["id"])
+    if uid == user_id: raise HTTPException(status_code=400, detail="Нельзя пожаловаться на себя")
+    body = await request.json()
+    reason = str(body.get("reason", "")).strip()[:80]
+    details = str(body.get("details", "")).strip()[:500]
+    if not reason: raise HTTPException(status_code=400, detail="Укажите причину")
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from users where id=$1", user_id)
+        if not exists: raise HTTPException(status_code=404, detail="Пользователь не найден")
+        await connection.execute("insert into user_reports(reporter_id,reported_user_id,reason,details) values($1,$2,$3,$4)", uid, user_id, reason, details or None)
+    return {"ok": True}
 
 @app.post("/api/videos/upload")
 async def upload_video(
@@ -945,8 +1026,10 @@ async def add_comment(video_id:int, request:Request):
     if not text: raise HTTPException(status_code=400,detail="Комментарий не может быть пустым")
     p=await get_db_pool()
     async with p.acquire() as c:
-        owner=await c.fetchval("select user_id from videos where id=$1",video_id)
+        owner=await c.fetchval("select user_id from videos where id=$1 and not is_deleted",video_id)
         if owner is None: raise HTTPException(status_code=404,detail="Видео не найдено")
+        blocked=await c.fetchval("select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)",int(user["id"]),int(owner))
+        if blocked: raise HTTPException(status_code=403,detail="Взаимодействие с этим пользователем недоступно")
         row=await c.fetchrow("insert into comments(video_id,user_id,text) values($1,$2,$3) returning id,text,created_at",video_id,int(user["id"]),text)
         await c.execute("update videos set comments_count=comments_count+1 where id=$1",video_id)
         if int(owner)!=int(user["id"]): await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
