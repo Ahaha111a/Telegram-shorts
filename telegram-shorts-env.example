@@ -1,0 +1,9 @@
+# Telegram Shorts environment template
+# NEVER commit real secrets to GitHub.
+
+BOT_TOKEN=
+DATABASE_URL=
+WEB_APP_URL=https://telegram-shorts-production.up.railway.app
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+ADMIN_TELEGRAM_IDS=
