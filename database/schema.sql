@@ -76,6 +76,41 @@ create table if not exists reports (
   resolved_by bigint references users(id) on delete set null,
   unique (reporter_id,video_id)
 );
+
+create table if not exists video_preferences (
+    user_id bigint not null references users(id) on delete cascade,
+    video_id bigint not null references videos(id) on delete cascade,
+    kind text not null,
+    created_at timestamptz not null default now(),
+    primary key (user_id, video_id, kind)
+);
+
+create table if not exists hidden_authors (
+    user_id bigint not null references users(id) on delete cascade,
+    author_id bigint not null references users(id) on delete cascade,
+    created_at timestamptz not null default now(),
+    primary key (user_id, author_id),
+    check (user_id <> author_id)
+);
+
+create table if not exists user_blocks (
+    blocker_id bigint not null references users(id) on delete cascade,
+    blocked_id bigint not null references users(id) on delete cascade,
+    created_at timestamptz not null default now(),
+    primary key (blocker_id, blocked_id),
+    check (blocker_id <> blocked_id)
+);
+
+create table if not exists user_reports (
+    id bigint generated always as identity primary key,
+    reporter_id bigint not null references users(id) on delete cascade,
+    reported_user_id bigint not null references users(id) on delete cascade,
+    reason text not null,
+    details text,
+    status text not null default 'open',
+    created_at timestamptz not null default now()
+);
+
 create table if not exists notifications (
   id bigint generated always as identity primary key,
   user_id bigint not null references users(id) on delete cascade,
