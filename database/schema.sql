@@ -133,3 +133,7 @@ create index if not exists idx_videos_hashtags on videos using gin(hashtags);
 create index if not exists idx_follows_following_id on follows(following_id);
 create index if not exists idx_notifications_user_id on notifications(user_id,created_at desc);
 create index if not exists idx_reports_status_created_at on reports(status,created_at desc);
+create index if not exists idx_video_preferences_user_id on video_preferences(user_id,created_at desc);
+create index if not exists idx_hidden_authors_user_id on hidden_authors(user_id,created_at desc);
+create index if not exists idx_user_blocks_blocker_id on user_blocks(blocker_id,created_at desc);
+create index if not exists idx_user_reports_status_created_at on user_reports(status,created_at desc);
