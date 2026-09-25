@@ -1,6 +1,6 @@
-# Telegram Shorts — Stable Social v4
+# Telegram Shorts — Stable Social v5
 
-Production-ready Telegram Mini App + bot for a vertical short-video feed.
+Production-ready Telegram Mini App + bot for a vertical short-video feed, with mobile-first UI/UX and reliable panel navigation.
 
 ## Production
 
@@ -26,7 +26,9 @@ The production Mini App is served directly from `dist/index.html` by the FastAPI
 - Persistent "Not interested" and "Don't show this author"
 - User blocking and user reports
 - Automatic database/storage initialization
-- `.env.example` included
+- `.env.example` included and verified
+- Automatic migration for recommendation/blocking/preference tables
+- Friendly JSON error responses instead of raw FastAPI 500 pages
 
 ## Environment
 
