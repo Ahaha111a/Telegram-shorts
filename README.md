@@ -1,6 +1,6 @@
-# Telegram Shorts — Stable Social v5
+# Telegram Shorts — Stable Social v4
 
-Production-ready Telegram Mini App + bot for a vertical short-video feed, with mobile-first UI/UX and reliable panel navigation.
+Production-ready Telegram Mini App + bot for a vertical short-video feed.
 
 ## Production
 
@@ -26,9 +26,7 @@ The production Mini App is served directly from `dist/index.html` by the FastAPI
 - Persistent "Not interested" and "Don't show this author"
 - User blocking and user reports
 - Automatic database/storage initialization
-- `.env.example` included and verified
-- Automatic migration for recommendation/blocking/preference tables
-- Friendly JSON error responses instead of raw FastAPI 500 pages
+- `.env.example` included
 
 ## Environment
 
@@ -46,3 +44,9 @@ Required Railway variables:
 ## Important
 
 Do not replace `dist/index.html` with a separate React/Vite build. The current production UI is the tested static Mini App shipped with this archive.
+
+
+### UX policy
+- История просмотров отключена и больше не записывается приложением.
+- Лайк не должен менять состояние воспроизведения видео.
+- Счётчики профиля используют фиксированную адаптивную сетку.

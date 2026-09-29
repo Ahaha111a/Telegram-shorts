@@ -1,8 +1,8 @@
 {
   "name": "telegram-shorts",
   "private": true,
-  "version": "1.1.0",
-  "description": "Telegram Shorts Stable Social v5 — mobile-first production Mini App",
+  "version": "1.0.0",
+  "description": "Telegram Shorts production Mini App frontend",
   "scripts": {
     "dev": "python -m http.server 4173 -d dist",
     "build": "python -c \"print('Production build is already in dist/index.html')\""

@@ -5,7 +5,6 @@ import hmac
 import hashlib
 import time
 import re
-import traceback
 from pathlib import Path
 from urllib.parse import parse_qsl, quote
 
@@ -148,37 +147,6 @@ async def init_db():
             resolved_by bigint references users(id) on delete set null,
             unique (reporter_id, video_id)
         );
-
-        create table if not exists video_preferences (
-            user_id bigint not null references users(id) on delete cascade,
-            video_id bigint not null references videos(id) on delete cascade,
-            kind text not null,
-            created_at timestamptz not null default now(),
-            primary key (user_id, video_id, kind)
-        );
-        create table if not exists hidden_authors (
-            user_id bigint not null references users(id) on delete cascade,
-            author_id bigint not null references users(id) on delete cascade,
-            created_at timestamptz not null default now(),
-            primary key (user_id, author_id),
-            check (user_id <> author_id)
-        );
-        create table if not exists user_blocks (
-            blocker_id bigint not null references users(id) on delete cascade,
-            blocked_id bigint not null references users(id) on delete cascade,
-            created_at timestamptz not null default now(),
-            primary key (blocker_id, blocked_id),
-            check (blocker_id <> blocked_id)
-        );
-        create table if not exists user_reports (
-            id bigint generated always as identity primary key,
-            reporter_id bigint not null references users(id) on delete cascade,
-            reported_user_id bigint not null references users(id) on delete cascade,
-            reason text not null,
-            details text,
-            status text not null default 'open',
-            created_at timestamptz not null default now()
-        );
         create index if not exists idx_videos_created_at on videos (created_at desc);
         create index if not exists idx_videos_user_id on videos (user_id);
         create index if not exists idx_video_views_video_id on video_views (video_id);
@@ -201,10 +169,6 @@ async def init_db():
         );
 
         create index if not exists idx_follows_following_id on follows (following_id);
-        create index if not exists idx_video_preferences_user_id on video_preferences (user_id, created_at desc);
-        create index if not exists idx_hidden_authors_user_id on hidden_authors (user_id, created_at desc);
-        create index if not exists idx_user_blocks_blocker_id on user_blocks (blocker_id, created_at desc);
-        create index if not exists idx_user_reports_status_created_at on user_reports (status, created_at desc);
         create index if not exists idx_notifications_user_id on notifications (user_id, created_at desc);
         create index if not exists idx_reports_status_created_at on reports (status, created_at desc);
         """)
@@ -504,10 +468,16 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
                 + coalesce((
                     select sum(interest.weight)
                     from (
-                        select unnest(iv.hashtags) as tag, count(*)::float * 0.22 as weight
-                        from video_watch_history wh
-                        join videos iv on iv.id=wh.video_id
-                        where wh.user_id=$1 and wh.last_watched_at > now() - interval '30 days'
+                        select unnest(iv.hashtags) as tag, count(*)::float * 0.18 as weight
+                        from video_likes vl
+                        join videos iv on iv.id=vl.video_id
+                        where vl.user_id=$1
+                        group by 1
+                        union all
+                        select unnest(iv.hashtags) as tag, count(*)::float * 0.24 as weight
+                        from video_saves vs
+                        join videos iv on iv.id=vs.video_id
+                        where vs.user_id=$1
                         group by 1
                     ) interest
                     where interest.tag = any(v.hashtags)
@@ -528,8 +498,7 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
                 exists(
                     select 1 from video_saves vs
                     where vs.video_id=v.id and vs.user_id=$1
-                ) as saved,
-                (select count(*) from video_saves vsc where vsc.video_id=v.id) as saves_count
+                ) as saved
 ,
                 exists(
                     select 1 from follows ff2
@@ -580,7 +549,6 @@ async def get_video(video_id: int, request: Request):
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
                    exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
                    exists(select 1 from video_saves vs where vs.video_id=v.id and vs.user_id=$1) as saved,
-                   (select count(*) from video_saves vsc where vsc.video_id=v.id) as saves_count,
                    exists(select 1 from follows f where f.follower_id=$1 and f.following_id=v.user_id) as following
             from videos v join users u on u.id=v.user_id
             where v.id=$2 and not v.is_deleted
@@ -774,57 +742,9 @@ async def add_view(video_id: int, request: Request):
             )
         else:
             row = await connection.fetchrow("select views_count from videos where id=$1", video_id)
-        await connection.execute(
-            """insert into video_watch_history(user_id,video_id,watched_seconds,completed,last_watched_at)
-               values($1,$2,0,false,now())
-               on conflict(user_id,video_id) do update set last_watched_at=now()""",
-            user_id, video_id,
-        )
+
 
     return {"ok": True, "views_count": int(row["views_count"])}
-
-
-@app.post("/api/videos/{video_id}/watch")
-async def update_watch_history(video_id: int, request: Request):
-    user = await get_authenticated_user(request)
-    body = await request.json()
-    watched_seconds = max(0.0, min(float(body.get("watched_seconds", 0) or 0), 3600.0))
-    completed = bool(body.get("completed", False))
-    pool = await get_db_pool()
-    async with pool.acquire() as connection:
-        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
-        if not exists:
-            raise HTTPException(status_code=404, detail="Видео не найдено")
-        await connection.execute(
-            """insert into video_watch_history(user_id,video_id,watched_seconds,completed,last_watched_at)
-               values($1,$2,$3,$4,now())
-               on conflict(user_id,video_id) do update set
-                 watched_seconds=greatest(video_watch_history.watched_seconds, excluded.watched_seconds),
-                 completed=video_watch_history.completed or excluded.completed,
-                 last_watched_at=now()""",
-            int(user["id"]), video_id, watched_seconds, completed,
-        )
-    return {"ok": True}
-
-
-@app.get("/api/history")
-async def get_history(request: Request, offset: int = 0, limit: int = 60):
-    user = await get_authenticated_user(request)
-    offset=max(0,min(int(offset),5000)); limit=max(1,min(int(limit),60))
-    pool=await get_db_pool()
-    async with pool.acquire() as connection:
-        rows=await connection.fetch(
-            """select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,
-                      v.created_at, wh.watched_seconds, wh.completed, wh.last_watched_at,
-                      u.username,u.first_name,u.last_name,u.avatar_url
-               from video_watch_history wh
-               join videos v on v.id=wh.video_id
-               join users u on u.id=v.user_id
-               where wh.user_id=$1 and not v.is_deleted
-               order by wh.last_watched_at desc limit $2 offset $3""",
-            int(user["id"]),limit,offset
-        )
-    return {"ok":True,"videos":[dict(x) for x in rows],"offset":offset,"limit":limit}
 
 
 @app.post("/api/videos/{video_id}/like")
@@ -869,15 +789,10 @@ async def toggle_like(video_id: int, request: Request):
                 select count(*) from video_likes where video_id = $1
             )
             where id = $1
-            returning likes_count, user_id
+            returning likes_count
             """,
             video_id,
         )
-        if row and liked and int(row["user_id"]) != user_id:
-            await connection.execute(
-                "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'like',$3)",
-                int(row["user_id"]), user_id, video_id
-            )
 
     if not row:
         raise HTTPException(status_code=404, detail="Видео не найдено")
@@ -891,8 +806,8 @@ async def toggle_save(video_id: int, request: Request):
     user_id = int(user["id"])
     pool = await get_db_pool()
     async with pool.acquire() as connection:
-        owner_id = await connection.fetchval("select user_id from videos where id=$1 and not is_deleted", video_id)
-        if owner_id is None:
+        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
+        if not exists:
             raise HTTPException(status_code=404, detail="Видео не найдено")
         saved = await connection.fetchval("select 1 from video_saves where video_id=$1 and user_id=$2", video_id, user_id)
         if saved:
@@ -901,13 +816,7 @@ async def toggle_save(video_id: int, request: Request):
         else:
             await connection.execute("insert into video_saves(video_id,user_id) values($1,$2) on conflict do nothing", video_id, user_id)
             is_saved = True
-        saves_count = await connection.fetchval("select count(*) from video_saves where video_id=$1", video_id)
-        if is_saved and int(owner_id) != user_id:
-            await connection.execute(
-                "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'save',$3)",
-                int(owner_id), user_id, video_id
-            )
-    return {"ok": True, "saved": is_saved, "saves_count": int(saves_count or 0)}
+    return {"ok": True, "saved": is_saved}
 
 @app.get("/api/saved")
 async def get_saved(request: Request, offset: int = 0, limit: int = 60):
@@ -969,7 +878,7 @@ async def get_profile(user_id: int, request: Request):
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
           from users u where u.id=$2""", int(viewer["id"]), user_id)
-        videos = await connection.fetch("select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,(select count(*) from video_saves s where s.video_id=v.id) as saves_count,v.created_at from videos v where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60", user_id)
+        videos = await connection.fetch("select id,video_url,caption,hashtags,views_count,likes_count,comments_count,created_at from videos where user_id=$1 and not is_deleted order by created_at desc limit 60", user_id)
     if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
     return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
 
@@ -1158,13 +1067,6 @@ async def admin_resolve_report(report_id: int, request: Request):
         if not row:
             raise HTTPException(status_code=404, detail="Жалоба не найдена")
     return {"ok": True, "resolved": True}
-
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    print(f"Unhandled server error on {request.method} {request.url.path}: {exc}")
-    traceback.print_exc()
-    return JSONResponse(status_code=500, content={"ok": False, "detail": "Временная ошибка сервера. Попробуйте ещё раз."})
 
 
 @app.get("/health/db")
