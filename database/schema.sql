@@ -42,14 +42,6 @@ create table if not exists video_saves (
   created_at timestamptz not null default now(),
   primary key (video_id,user_id)
 );
-create table if not exists video_watch_history (
-  user_id bigint not null references users(id) on delete cascade,
-  video_id bigint not null references videos(id) on delete cascade,
-  watched_seconds numeric(10,2) not null default 0,
-  completed boolean not null default false,
-  last_watched_at timestamptz not null default now(),
-  primary key (user_id,video_id)
-);
 create table if not exists comments (
   id bigint generated always as identity primary key,
   video_id bigint not null references videos(id) on delete cascade,
@@ -127,13 +119,7 @@ create unique index if not exists uq_video_views_user_video on video_views(video
 create index if not exists idx_comments_video_id on comments(video_id);
 create index if not exists idx_video_saves_user_id on video_saves(user_id,created_at desc);
 create index if not exists idx_video_saves_video_id on video_saves(video_id);
-create index if not exists idx_watch_history_user_time on video_watch_history(user_id,last_watched_at desc);
-create index if not exists idx_watch_history_video on video_watch_history(video_id);
 create index if not exists idx_videos_hashtags on videos using gin(hashtags);
 create index if not exists idx_follows_following_id on follows(following_id);
 create index if not exists idx_notifications_user_id on notifications(user_id,created_at desc);
 create index if not exists idx_reports_status_created_at on reports(status,created_at desc);
-create index if not exists idx_video_preferences_user_id on video_preferences(user_id,created_at desc);
-create index if not exists idx_hidden_authors_user_id on hidden_authors(user_id,created_at desc);
-create index if not exists idx_user_blocks_blocker_id on user_blocks(blocker_id,created_at desc);
-create index if not exists idx_user_reports_status_created_at on user_reports(status,created_at desc);
