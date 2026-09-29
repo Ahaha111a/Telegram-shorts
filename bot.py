@@ -39,6 +39,13 @@ if not SUPABASE_SERVICE_ROLE_KEY:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 app = FastAPI()
+
+@app.exception_handler(Exception)
+async def temporary_server_error_handler(request: Request, exc: Exception):
+    # Keep production UI responsive without exposing database/internal details to users.
+    print(f"Unhandled server error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(status_code=500, content={"ok": False, "detail": "Временная ошибка сервера. Попробуйте ещё раз."})
+
 db_pool = None
 
 
@@ -105,15 +112,6 @@ async def init_db():
             primary key (video_id, user_id)
         );
 
-        create table if not exists video_watch_history (
-            user_id bigint not null references users(id) on delete cascade,
-            video_id bigint not null references videos(id) on delete cascade,
-            watched_seconds numeric(10,2) not null default 0,
-            completed boolean not null default false,
-            last_watched_at timestamptz not null default now(),
-            primary key (user_id, video_id)
-        );
-
         create table if not exists comments (
             id bigint generated always as identity primary key,
             video_id bigint not null references videos(id) on delete cascade,
@@ -135,6 +133,40 @@ async def init_db():
         alter table videos add column if not exists deleted_at timestamptz;
         alter table videos add column if not exists hashtags text[] not null default '{}';
         create index if not exists idx_videos_hashtags on videos using gin (hashtags);
+        create table if not exists video_preferences (
+            user_id bigint not null references users(id) on delete cascade,
+            video_id bigint not null references videos(id) on delete cascade,
+            kind text not null,
+            created_at timestamptz not null default now(),
+            primary key (user_id, video_id, kind)
+        );
+
+        create table if not exists hidden_authors (
+            user_id bigint not null references users(id) on delete cascade,
+            author_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (user_id, author_id),
+            check (user_id <> author_id)
+        );
+
+        create table if not exists user_blocks (
+            blocker_id bigint not null references users(id) on delete cascade,
+            blocked_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (blocker_id, blocked_id),
+            check (blocker_id <> blocked_id)
+        );
+
+        create table if not exists user_reports (
+            id bigint generated always as identity primary key,
+            reporter_id bigint not null references users(id) on delete cascade,
+            reported_user_id bigint not null references users(id) on delete cascade,
+            reason text not null,
+            details text,
+            status text not null default 'open',
+            created_at timestamptz not null default now()
+        );
+
         create table if not exists reports (
             id bigint generated always as identity primary key,
             reporter_id bigint not null references users(id) on delete cascade,
@@ -490,6 +522,7 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
             select
                 v.id, v.user_id, v.video_url, v.caption,
                 v.views_count, v.likes_count, v.comments_count, v.hashtags, v.created_at,
+                (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
                 coalesce(u.custom_username,u.username) as username, u.first_name, u.last_name, u.avatar_url,
                 exists(
                     select 1 from video_likes vl
@@ -546,6 +579,7 @@ async def get_video(video_id: int, request: Request):
     async with pool.acquire() as connection:
         row = await connection.fetchrow("""
             select v.id,v.user_id,v.video_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
+                   (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
                    exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
                    exists(select 1 from video_saves vs where vs.video_id=v.id and vs.user_id=$1) as saved,
@@ -826,6 +860,7 @@ async def get_saved(request: Request, offset: int = 0, limit: int = 60):
     async with pool.acquire() as connection:
         rows = await connection.fetch("""
             select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
+                   (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url, true as saved
             from video_saves s join videos v on v.id=s.video_id join users u on u.id=v.user_id
             where s.user_id=$1 and not v.is_deleted
