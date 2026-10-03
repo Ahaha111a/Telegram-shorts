@@ -1,7 +1,7 @@
 {
   "name": "telegram-shorts",
   "private": true,
-  "version": "1.0.0",
+  "version": "8.0.0",
   "description": "Telegram Shorts production Mini App frontend",
   "scripts": {
     "dev": "python -m http.server 4173 -d dist",

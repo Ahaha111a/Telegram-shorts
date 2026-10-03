@@ -1,4 +1,4 @@
-# Telegram Shorts — Stable Social v7
+# Telegram Shorts — Stable Social v8
 
 Production Telegram Mini App + bot for a TikTok/Reels-style vertical short-video feed.
 
@@ -30,3 +30,10 @@ The production Mini App is served from `dist/index.html`.
 - `ADMIN_TELEGRAM_IDS`
 
 `.env.example` is optional for GitHub and is intentionally not required for production.
+
+
+## v8 focus
+- Deterministic mobile video gestures: tap pause/play, double-tap like.
+- High-contrast bottom navigation.
+- Profile/Saved tab navigation and nested social navigation.
+- Watch history remains removed.
