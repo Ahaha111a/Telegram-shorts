@@ -117,9 +117,9 @@ async def init_db():
             video_id bigint not null references videos(id) on delete cascade,
             user_id bigint not null references users(id) on delete cascade,
             text text not null,
+            parent_id bigint references comments(id) on delete cascade,
             created_at timestamptz not null default now()
         );
-        alter table comments add column if not exists parent_id bigint references comments(id) on delete cascade;
 
         create table if not exists follows (
             follower_id bigint not null references users(id) on delete cascade,
@@ -133,6 +133,7 @@ async def init_db():
         alter table videos add column if not exists is_deleted boolean not null default false;
         alter table videos add column if not exists deleted_at timestamptz;
         alter table videos add column if not exists hashtags text[] not null default '{}';
+        alter table comments add column if not exists parent_id bigint references comments(id) on delete cascade;
         create index if not exists idx_videos_hashtags on videos using gin (hashtags);
         create table if not exists video_preferences (
             user_id bigint not null references users(id) on delete cascade,
@@ -189,6 +190,7 @@ async def init_db():
         create unique index if not exists uq_video_views_user_video
             on video_views(video_id,user_id) where user_id is not null;
         create index if not exists idx_comments_video_id on comments (video_id);
+        create index if not exists idx_comments_video_parent on comments(video_id,parent_id,created_at desc);
         create index if not exists idx_video_saves_user_id on video_saves (user_id, created_at desc);
         create index if not exists idx_video_saves_video_id on video_saves (video_id);
         create table if not exists notifications (
@@ -788,50 +790,37 @@ async def toggle_like(video_id: int, request: Request):
     user_id = int(user["id"])
     pool = await get_db_pool()
 
-    # Serialize like toggles for the same video. This prevents rapid taps or
-    # concurrent requests from producing an inconsistent counter/state.
     async with pool.acquire() as connection:
         async with connection.transaction():
-            video_owner = await connection.fetchval(
-                "select user_id from videos where id=$1 and not is_deleted for update",
-                video_id,
+            video = await connection.fetchrow(
+                "select id,user_id from videos where id=$1 and not is_deleted for update", video_id
             )
-            if video_owner is None:
+            if not video:
                 raise HTTPException(status_code=404, detail="Видео не найдено")
-
             existing = await connection.fetchval(
-                "select 1 from video_likes where video_id=$1 and user_id=$2",
-                video_id, user_id,
+                "select 1 from video_likes where video_id=$1 and user_id=$2", video_id, user_id
             )
-
             if existing:
-                await connection.execute(
-                    "delete from video_likes where video_id=$1 and user_id=$2",
-                    video_id, user_id,
-                )
+                await connection.execute("delete from video_likes where video_id=$1 and user_id=$2", video_id, user_id)
                 liked = False
             else:
-                await connection.execute(
-                    "insert into video_likes (video_id, user_id) values ($1, $2) on conflict do nothing",
-                    video_id, user_id,
+                result = await connection.execute(
+                    "insert into video_likes(video_id,user_id) values($1,$2) on conflict do nothing", video_id, user_id
                 )
-                liked = True
-                if int(video_owner) != user_id:
+                liked = result.endswith("1")
+                if liked and int(video["user_id"]) != user_id:
                     await connection.execute(
                         "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'like',$3)",
-                        int(video_owner), user_id, video_id,
+                        int(video["user_id"]), user_id, video_id
                     )
-
             row = await connection.fetchrow(
-                """update videos
-                   set likes_count=(select count(*) from video_likes where video_id=$1)
-                   where id=$1
-                   returning likes_count""",
-                video_id,
+                "update videos set likes_count=(select count(*) from video_likes where video_id=$1) where id=$1 returning likes_count",
+                video_id
             )
+    return {"ok":True,"liked":liked,"likes_count":int(row["likes_count"])}
 
-    return {"ok": True, "liked": liked, "likes_count": int(row["likes_count"])}
 
+@app.post("/api/videos/{video_id}/save")
 async def toggle_save(video_id: int, request: Request):
     user = await get_authenticated_user(request)
     user_id = int(user["id"])
@@ -887,27 +876,12 @@ async def delete_comment(comment_id: int, request: Request):
     user=await get_authenticated_user(request); pool=await get_db_pool()
     async with pool.acquire() as connection:
         async with connection.transaction():
-            row=await connection.fetchrow(
-                "select id,video_id from comments where id=$1 and user_id=$2",
-                comment_id,int(user["id"])
-            )
-            if not row:
-                raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
-            descendants=await connection.fetchval("""
-                with recursive tree as (
-                    select id from comments where id=$1
-                    union all
-                    select c.id from comments c join tree t on c.parent_id=t.id
-                )
-                select count(*) from tree
-            """,comment_id)
-            await connection.execute("delete from comments where id=$1",comment_id)
-            await connection.execute(
-                "update videos set comments_count=greatest(comments_count-$1,0) where id=$2",
-                int(descendants or 1),row["video_id"]
-            )
-    return {"ok":True,"deleted":True}
-
+            row=await connection.fetchrow("select id,video_id from comments where id=$1 and user_id=$2 for update", comment_id, int(user["id"]))
+            if not row: raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
+            count=await connection.fetchval("""with recursive tree as (select id from comments where id=$1 union all select c.id from comments c join tree t on c.parent_id=t.id) select count(*) from tree""", comment_id)
+            await connection.execute("delete from comments where id=$1", comment_id)
+            await connection.execute("update videos set comments_count=greatest(comments_count-$2,0) where id=$1", row["video_id"], int(count or 1))
+    return {"ok":True,"deleted":True,"deleted_count":int(count or 1)}
 
 @app.get("/api/notifications/unread-count")
 async def unread_notifications(request: Request):
@@ -1023,81 +997,36 @@ async def update_me(request: Request):
 
 @app.get("/api/videos/{video_id}/comments")
 async def get_comments(video_id:int, request:Request):
-    await get_authenticated_user(request)
-    p=await get_db_pool()
+    await get_authenticated_user(request); p=await get_db_pool()
     async with p.acquire() as c:
-        rows=await c.fetch("""
-            select c.id,c.parent_id,c.text,c.created_at,u.id as user_id,
-                   coalesce(u.custom_username,u.username) as username,
-                   u.first_name,u.avatar_url
-            from comments c
-            join users u on u.id=c.user_id
-            where c.video_id=$1
-              and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted)
-            order by c.created_at asc
-            limit 200
-        """,video_id)
+        rows=await c.fetch("""select c.id,c.parent_id,c.text,c.created_at,u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url from comments c join users u on u.id=c.user_id where c.video_id=$1 and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted) order by c.created_at asc limit 200""",video_id)
     return {"ok":True,"comments":[dict(x) for x in rows]}
 
+@app.post("/api/videos/{video_id}/comments")
 async def add_comment(video_id:int, request:Request):
-    user=await get_authenticated_user(request)
-    payload=await request.json()
-    text=str(payload.get("text","")).strip()[:500]
-    parent_id=payload.get("parent_id")
-    parent_id=int(parent_id) if str(parent_id).isdigit() else None
-    if not text:
-        raise HTTPException(status_code=400,detail="Комментарий не может быть пустым")
-
+    user=await get_authenticated_user(request); body=await request.json(); text=str(body.get("text","")).strip()[:500]; parent_id=body.get("parent_id")
+    if not text: raise HTTPException(status_code=400,detail="Комментарий не может быть пустым")
+    try: parent_id=int(parent_id) if parent_id not in (None,'',0) else None
+    except (TypeError,ValueError): parent_id=None
     p=await get_db_pool()
     async with p.acquire() as c:
         owner=await c.fetchval("select user_id from videos where id=$1 and not is_deleted",video_id)
-        if owner is None:
-            raise HTTPException(status_code=404,detail="Видео не найдено")
-
+        if owner is None: raise HTTPException(status_code=404,detail="Видео не найдено")
+        blocked=await c.fetchval("select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)",int(user["id"]),int(owner))
+        if blocked: raise HTTPException(status_code=403,detail="Взаимодействие с этим пользователем недоступно")
+        parent_owner=None
         if parent_id is not None:
-            parent=await c.fetchrow(
-                "select id,user_id,video_id from comments where id=$1",
-                parent_id,
-            )
-            if not parent or int(parent["video_id"])!=video_id:
-                raise HTTPException(status_code=400,detail="Комментарий для ответа не найден")
-            if await c.fetchval(
-                "select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)",
-                int(user["id"]), int(parent["user_id"])
-            ):
-                raise HTTPException(status_code=403,detail="Взаимодействие с этим пользователем недоступно")
-
-        blocked=await c.fetchval(
-            "select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)",
-            int(user["id"]),int(owner)
-        )
-        if blocked:
-            raise HTTPException(status_code=403,detail="Взаимодействие с этим пользователем недоступно")
-
-        row=await c.fetchrow(
-            "insert into comments(video_id,user_id,text,parent_id) values($1,$2,$3,$4) returning id,parent_id,text,created_at",
-            video_id,int(user["id"]),text,parent_id
-        )
+            parent_owner=await c.fetchval("select user_id from comments where id=$1 and video_id=$2",parent_id,video_id)
+            if parent_owner is None: raise HTTPException(status_code=400,detail="Комментарий для ответа не найден")
+        row=await c.fetchrow("insert into comments(video_id,user_id,text,parent_id) values($1,$2,$3,$4) returning id,parent_id,text,created_at",video_id,int(user["id"]),text,parent_id)
         await c.execute("update videos set comments_count=comments_count+1 where id=$1",video_id)
-
-        notified=set()
-        if int(owner)!=int(user["id"]):
-            await c.execute(
-                "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",
-                int(owner),int(user["id"]),video_id
-            )
-            notified.add(int(owner))
-
-        if parent_id is not None:
-            parent_owner=int(parent["user_id"])
-            if parent_owner!=int(user["id"]) and parent_owner not in notified:
-                await c.execute(
-                    "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'reply',$3)",
-                    parent_owner,int(user["id"]),video_id
-                )
-
+        if parent_owner is not None and int(parent_owner)!=int(user["id"]):
+            await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'reply',$3)",int(parent_owner),int(user["id"]),video_id)
+        elif int(owner)!=int(user["id"]):
+            await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
     return {"ok":True,"comment":dict(row)}
 
+@app.post("/api/users/{user_id}/follow")
 async def toggle_follow(user_id:int, request:Request):
     user=await get_authenticated_user(request); follower=int(user["id"])
     if follower==user_id: raise HTTPException(status_code=400,detail="Нельзя подписаться на себя")
