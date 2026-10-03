@@ -21,44 +21,19 @@
 @keyframes doubleLikePop{0%{opacity:0;transform:translate(-50%,-50%) scale(.35)}18%{opacity:1;transform:translate(-50%,-50%) scale(1.12)}45%{opacity:1;transform:translate(-50%,-50%) scale(.96)}72%{opacity:.86;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.08)}}
 .video-gesture-layer{position:absolute;inset:0;z-index:4;pointer-events:none}
 
-/* v9: elevated navigation + mobile gesture hardening */
-.bottom{
-  background:linear-gradient(180deg,rgba(19,25,38,.92) 0%,rgba(15,21,33,.985) 42%,rgba(12,17,27,1) 100%);
-  border-top:1px solid rgba(255,255,255,.18);
-  box-shadow:0 -16px 44px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.04);
-  backdrop-filter:blur(26px) saturate(1.25);
-  -webkit-backdrop-filter:blur(26px) saturate(1.25);
-}
-.nav{
-  color:#d9e0ec;
-  background:rgba(255,255,255,.075);
-  border:1px solid rgba(255,255,255,.09);
-  min-height:54px;
-  text-shadow:0 1px 8px rgba(0,0,0,.35);
-}
-.nav .svg-icon{width:21px;height:21px;stroke-width:2}
-.nav small{font-size:10px;line-height:1.05;font-weight:720;color:inherit}
-.nav.active{
-  color:#fff;
-  background:linear-gradient(180deg,rgba(145,96,255,.22),rgba(255,255,255,.075));
-  border-color:rgba(174,137,255,.30);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.035),0 5px 18px rgba(0,0,0,.20);
-}
-.nav.plus{
-  background:linear-gradient(135deg,#a04cff,#6d68ff 52%,#1aaeff);
-  border-color:rgba(255,255,255,.42);
-  box-shadow:0 9px 28px rgba(104,73,255,.52),0 0 0 1px rgba(255,255,255,.07);
-}
-.video{touch-action:pan-y;pointer-events:auto}
-.action,.author-link,.follow-mini,.tag{touch-action:manipulation}
-.double-like{pointer-events:none}
-.comment-reply{border:0;background:transparent;color:#9e8bff;font-size:11px;font-weight:720;padding:4px 0;margin-top:2px}
-.comment-thread{padding-left:44px}
-.comment-parent{margin-bottom:2px}
-.comment-composer{z-index:8}
-.replying-bar{display:none;align-items:center;justify-content:space-between;gap:8px;padding:7px 0 0;color:#aeb7c7;font-size:11px}
-.replying-bar.show{display:flex}
-.reply-cancel{border:0;background:transparent;color:#b79cff;padding:4px;font-size:11px;font-weight:700}
+/* v10 stability/UI override */
+.bottom{background:linear-gradient(180deg,rgba(15,22,35,.78) 0%,rgba(17,25,40,.97) 38%,rgba(13,20,33,1) 100%);border-top:1px solid rgba(255,255,255,.18);box-shadow:0 -18px 48px rgba(0,0,0,.48),inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);}
+.nav{color:#e1e7f0;background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.10);min-height:54px;text-shadow:0 1px 8px rgba(0,0,0,.35);}
+.nav small{font-size:10px;line-height:1.05;font-weight:720;color:inherit;}
+.nav.active{color:#fff;background:linear-gradient(180deg,rgba(145,96,255,.28),rgba(255,255,255,.085));border-color:rgba(174,137,255,.34);box-shadow:inset 0 0 0 1px rgba(255,255,255,.035),0 5px 18px rgba(0,0,0,.22);}
+.nav.plus{background:linear-gradient(135deg,#a04cff,#6d68ff 52%,#1aaeff);border-color:rgba(255,255,255,.42);box-shadow:0 9px 28px rgba(104,73,255,.52),0 0 0 1px rgba(255,255,255,.07);}
+.panel{background:linear-gradient(180deg,rgba(20,27,42,.985),rgba(11,16,27,.995));border-color:rgba(255,255,255,.14);box-shadow:0 -30px 90px rgba(0,0,0,.72);}
+.panel-head{background:linear-gradient(180deg,#141b2a 75%,rgba(20,27,42,0));}
+.panel-title{color:#fff;}
+.comments-list{padding-bottom:4px;}
+.comment{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:10px 9px;margin:7px 0;}
+.comment p{color:#f2f5fb;margin:4px 0;}.comment-reply{border:0;background:transparent;color:#a98cff;padding:3px 0;font-size:11px;font-weight:720;}
+.panel-backdrop{background:rgba(0,0,0,.64);}
 </style></head><body><div class="splash" id="splash"><div class="splash-mark"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/></svg></div><div class="splash-wordmark">Telegram <span>Shorts</span></div><div class="splash-subtitle">Короткие видео. Большие эмоции.</div><div class="splash-bar"><i id="splashBar"></i></div></div>
 <div class="app" id="app">
   <header class="topbar">
@@ -80,7 +55,7 @@
   <div class="panel panel-upload" id="uploadPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">Создать Shorts</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><label class="upload-drop" for="videoFile"><div class="upload-icon"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 9 6-9 6Z" fill="currentColor" stroke="none"/></svg></div><b>Выбери видео</b><span>MP4, WebM или MOV · до 50 МБ</span></label><input accept="video/mp4,video/webm,video/quicktime" class="file-input" id="videoFile" type="file"/><input class="field" id="caption" maxlength="500" placeholder="Расскажи, что происходит в видео…"/><button class="primary" id="publishBtn">Опубликовать</button><button class="secondary close-panel">Отмена</button><div class="status" id="uploadStatus"></div></div>
   <div class="panel panel-profile" id="profilePanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">Профиль</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="profileContent">Загрузка…</div></div>
   <div class="panel panel-search" id="searchPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">Поиск</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="searchbox"><div class="search-field-wrap"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4.7 4.7"/></svg><input class="field" id="searchInput" placeholder="Люди, видео, темы…"/></div><button class="icon-button" id="searchGo" aria-label="Найти"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4.7 4.7"/></svg></button></div><div id="searchResults"></div></div>
-  <div class="panel panel-comments" id="commentsPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">Комментарии</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="commentsList"></div><div class="replying-bar" id="replyingBar"><span id="replyingText">Ответ пользователю</span><button class="reply-cancel" id="replyCancel">Отмена</button></div><div class="comment-composer"><input class="field" id="commentInput" maxlength="500" placeholder="Написать комментарий…"/><button class="icon-button composer-send" id="commentSend" aria-label="Отправить"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="m7 9 5-5 5 5"/><path d="M5 14v5h14v-5"/></svg></button></div></div>
+  <div class="panel panel-comments" id="commentsPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">Комментарии</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="commentsList"></div><div class="comment-composer"><input class="field" id="commentInput" maxlength="500" placeholder="Написать комментарий…"/><button class="icon-button composer-send" id="commentSend" aria-label="Отправить"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="m7 9 5-5 5 5"/><path d="M5 14v5h14v-5"/></svg></button></div></div>
   <div class="panel panel-notify" id="notifyPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">События</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="notifyList">Загрузка…</div></div>
   <div class="panel" id="reportPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title">Пожаловаться</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="status">Выберите причину жалобы</div><div class="report-grid"><button class="report-option" data-reason="spam">Спам</button><button class="report-option" data-reason="violence">Насилие</button><button class="report-option" data-reason="sexual">Сексуальный контент</button><button class="report-option" data-reason="harassment">Травля</button><button class="report-option" data-reason="copyright">Авторские права</button><button class="report-option" data-reason="other">Другое</button></div><input class="field report-details" id="reportDetails" maxlength="500" placeholder="Опишите причину…"/><button class="primary" id="reportSend">Отправить жалобу</button></div>
   <div class="panel" id="adminPanel"><div class="handle"></div><div class="panel-head"><div class="panel-title"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3 19 6v5.3c0 4.1-2.5 7.2-7 9.7-4.5-2.5-7-5.6-7-9.7V6l7-3Z"/></svg> Модерация</div><button aria-label="Закрыть" class="panel-close"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div id="adminContent">Загрузка…</div></div>
@@ -94,9 +69,9 @@
 </div>
 <script>
 
-const APP_VERSION='v9.0.0';
+const APP_VERSION='v10.0.0';
 const tg=window.Telegram?.WebApp,feed=document.getElementById('feed');
-let initData='',viewed=new Set(),currentCommentVideo=null,currentReportVideo=null,currentReportReason=null,currentFeedMode='recommended',me=null;
+let initData='',viewed=new Set(),currentCommentVideo=null,currentReplyComment=null,currentReportVideo=null,currentReportReason=null,currentFeedMode='recommended',me=null;
 let feedRequestToken=0,feedOffset=0,feedHasMore=true,feedLoading=false,feedFirstLoad=true,profileRequestToken=0;let viewerVideoId=null,viewerData=null,viewTimers=new Map();let panelStack=[],feedObserver=null,feedLoadRetry=0;
 const $=id=>document.getElementById(id); const headers=(x={})=>({'X-Telegram-Init-Data':initData,...x});
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
@@ -261,11 +236,9 @@ async function toggleVideoPlayback(video){
   if(!video)return;
   try{
     if(video.paused){
-      video.__userPaused=false;
       await video.play();
       setPausedVisual(video,false);
     }else{
-      video.__userPaused=true;
       video.pause();
       setPausedVisual(video,true);
     }
@@ -276,8 +249,7 @@ async function toggleVideoPlayback(video){
 function showDoubleLike(video){
   const slide=video?.closest('.slide');
   const like=slide?.querySelector('.like-btn');
-  // A double tap is an explicit "like" gesture, not a toggle.
-  if(like && !like.classList.contains('liked')) toggleLikeButton(like,true);
+  if(like)toggleLikeButton(like,true);
   const heart=slide?.querySelector('.double-like');
   if(!heart)return;
   heart.classList.remove('show');
@@ -288,8 +260,8 @@ function showDoubleLike(video){
 }
 function handleVideoPointerDown(e){
   const video=e.currentTarget;
-  if(e.pointerType==='touch')return; // touch devices use the dedicated touch path below
   if(e.pointerType==='mouse' && e.button!==0)return;
+  video.setPointerCapture?.(e.pointerId);
   const g={x:e.clientX,y:e.clientY,time:performance.now(),moved:false,pointerId:e.pointerId};
   videoGestures.set(video,g);
 }
@@ -303,88 +275,37 @@ function handleVideoPointerUp(e){
   if(!g||g.moved)return;
   const elapsed=performance.now()-g.time;
   if(elapsed>520)return;
-  processVideoTap(video,e.clientX,e.clientY);
-}
-function processVideoTap(video,x,y){
   const now=performance.now();
   const last=video.__lastTap||0;
   const lastX=video.__lastTapX||0,lastY=video.__lastTapY||0;
-  if(now-last<340 && Math.hypot(x-lastX,y-lastY)<60){
+  if(now-last<300 && Math.hypot(e.clientX-lastX,e.clientY-lastY)<55){
     clearTimeout(video.__singleTapTimer);
     video.__lastTap=0;
     showDoubleLike(video);
     return;
   }
-  video.__lastTap=now;video.__lastTapX=x;video.__lastTapY=y;
+  video.__lastTap=now;video.__lastTapX=e.clientX;video.__lastTapY=e.clientY;
   clearTimeout(video.__singleTapTimer);
   video.__singleTapTimer=setTimeout(()=>{
     if(video.__lastTap!==now)return;
     toggleVideoPlayback(video);
     video.__lastTap=0;
-  },340);
-}
-function handleVideoTouchStart(e){
-  if(e.touches.length!==1)return;
-  const t=e.touches[0];
-  videoGestures.set(e.currentTarget,{x:t.clientX,y:t.clientY,time:performance.now(),moved:false,touch:true});
-}
-function handleVideoTouchMove(e){
-  const g=videoGestures.get(e.currentTarget);if(!g||!e.touches.length)return;
-  const t=e.touches[0];
-  if(Math.hypot(t.clientX-g.x,t.clientY-g.y)>14)g.moved=true;
-}
-function handleVideoTouchCancel(e){videoGestures.delete(e.currentTarget);}
-function handleVideoTouchEnd(e){
-  const video=e.currentTarget,g=videoGestures.get(video);videoGestures.delete(video);
-  if(!g||g.moved||e.changedTouches.length!==1)return;
-  const t=e.changedTouches[0];
-  if(performance.now()-g.time>520)return;
-  processVideoTap(video,t.clientX,t.clientY);
+  },310);
 }
 function setupFeedInteractions(){
   if(feedEventsBound)return;
   feedEventsBound=true;
   feed.addEventListener('pointerdown',e=>{
-    const target=e.target.closest?.('.action,.author-link,.follow-mini,.tag,.caption-details');
-    if(target){if(e.pointerType!=='touch')stopFeedGesture(e);return;}
-    const video=e.target.closest?.('.video');
-    if(video)handleVideoPointerDown({currentTarget:video,pointerId:e.pointerId,pointerType:e.pointerType,button:e.button,clientX:e.clientX,clientY:e.clientY});
+    if(e.target.closest('.action,.author-link,.follow-mini,.tag,.caption-details'))stopFeedGesture(e);
+    else if(e.target.closest('.video'))handleVideoPointerDown({currentTarget:e.target.closest('.video'),pointerId:e.pointerId,pointerType:e.pointerType,button:e.button,clientX:e.clientX,clientY:e.clientY});
   },{passive:false});
-  feed.addEventListener('pointermove',e=>{
-    if(e.pointerType==='touch')return;
-    const v=e.target.closest?.('.video');if(v)handleVideoPointerMove({currentTarget:v,clientX:e.clientX,clientY:e.clientY});
-  },{passive:true});
-  feed.addEventListener('pointercancel',e=>{
-    if(e.pointerType==='touch')return;
-    const v=e.target.closest?.('.video');if(v)handleVideoPointerCancel({currentTarget:v});
-  },{passive:true});
+  feed.addEventListener('pointermove',e=>{const v=e.target.closest?.('.video');if(v)handleVideoPointerMove({currentTarget:v,clientX:e.clientX,clientY:e.clientY});},{passive:true});
+  feed.addEventListener('pointercancel',e=>{const v=e.target.closest?.('.video');if(v)handleVideoPointerCancel({currentTarget:v});},{passive:true});
   feed.addEventListener('pointerup',e=>{
-    if(e.pointerType==='touch')return;
-    const target=e.target.closest?.('.action,.author-link,.follow-mini,.tag,.caption-details');
-    if(target){stopFeedGesture(e);return;}
+    if(e.target.closest('.action,.author-link,.follow-mini,.tag,.caption-details')){stopFeedGesture(e);return;}
     const v=e.target.closest?.('.video');
     if(v)handleVideoPointerUp({currentTarget:v,pointerId:e.pointerId,clientX:e.clientX,clientY:e.clientY});
   },{passive:false});
-
-  // Android Telegram WebView touch fallback. This path is intentionally separate
-  // from pointer events because some WebViews cancel pointerup during scrolling.
-  feed.addEventListener('touchstart',e=>{
-    const target=e.target.closest?.('.action,.author-link,.follow-mini,.tag,.caption-details');
-    if(target)return;
-    const v=e.target.closest?.('.video');if(v)handleVideoTouchStart({currentTarget:v,touches:e.touches});
-  },{passive:true});
-  feed.addEventListener('touchmove',e=>{
-    const v=e.target.closest?.('.video');if(v)handleVideoTouchMove({currentTarget:v,touches:e.touches});
-  },{passive:true});
-  feed.addEventListener('touchcancel',e=>{
-    const v=e.target.closest?.('.video');if(v)handleVideoTouchCancel({currentTarget:v});
-  },{passive:true});
-  feed.addEventListener('touchend',e=>{
-    const target=e.target.closest?.('.action,.author-link,.follow-mini,.tag,.caption-details');
-    if(target)return;
-    const v=e.target.closest?.('.video');if(v)handleVideoTouchEnd({currentTarget:v,changedTouches:e.changedTouches});
-  },{passive:true});
-
   feed.addEventListener('click',e=>{
     const like=e.target.closest('.like-btn'),save=e.target.closest('.save-btn'),comment=e.target.closest('.comment-btn'),more=e.target.closest('.more-btn'),follow=e.target.closest('.follow-mini'),author=e.target.closest('.author-link'),tag=e.target.closest('.tag');
     if(like){e.preventDefault();e.stopPropagation();toggleLikeButton(like,false);return;}
@@ -395,8 +316,38 @@ function setupFeedInteractions(){
     if(author){e.preventDefault();e.stopPropagation();openRootPanel('profilePanel');loadProfile(Number(author.dataset.user));return;}
     if(tag){e.preventDefault();e.stopPropagation();openRootPanel('searchPanel');$('searchInput').value='#'+tag.dataset.tag;search();return;}
   },{passive:false});
+  // Android Telegram WebView fallback. Use it only when Pointer Events are unavailable,
+  // otherwise the same physical touch would be handled twice.
+  if(!('PointerEvent' in window)){
+    // Android Telegram WebView fallback: handle direct touch gestures as well as Pointer Events.
+    feed.addEventListener('touchstart',e=>{
+      const video=e.target.closest?.('.video');
+      if(!video||e.touches.length!==1)return;
+      const t=e.touches[0];
+      handleVideoPointerDown({currentTarget:video,pointerId:'touch',pointerType:'touch',button:0,clientX:t.clientX,clientY:t.clientY});
+    },{passive:true});
+    feed.addEventListener('touchmove',e=>{
+      const video=e.target.closest?.('.video');
+      if(!video||!e.touches.length)return;
+      const t=e.touches[0];
+      handleVideoPointerMove({currentTarget:video,clientX:t.clientX,clientY:t.clientY});
+    },{passive:true});
+    feed.addEventListener('touchcancel',e=>{
+      const video=e.target.closest?.('.video');
+      if(video)handleVideoPointerCancel({currentTarget:video});
+    },{passive:true});
+    feed.addEventListener('touchend',e=>{
+      const video=e.target.closest?.('.video');
+      if(!video||e.changedTouches.length!==1)return;
+      const t=e.changedTouches[0];
+      e.preventDefault();e.stopPropagation();
+      handleVideoPointerUp({currentTarget:video,pointerId:'touch',clientX:t.clientX,clientY:t.clientY});
+    },{passive:false});
+  }
+  // Keep dblclick as a desktop fallback.
   feed.addEventListener('dblclick',e=>{
-    const video=e.target.closest('.video');if(!video)return;
+    const video=e.target.closest('.video');
+    if(!video)return;
     e.preventDefault();e.stopPropagation();clearTimeout(video.__singleTapTimer);video.__lastTap=0;showDoubleLike(video);
   },{passive:false});
 }
@@ -410,10 +361,8 @@ function setupFeedObserver(){
       if(entry.isIntersecting&&entry.intersectionRatio>=.78){
         document.querySelectorAll('.slide .video').forEach(v=>{if(v!==video){try{v.pause()}catch(_){};}});
         video.muted=false;
-        if(!video.__userPaused){
-          setPausedVisual(video,false);
-          video.play().catch(()=>{video.muted=true;video.play().catch(()=>{})});
-        }
+        setPausedVisual(video,false);
+        video.play().catch(()=>{video.muted=true;video.play().catch(()=>{})});
         const next=slide.nextElementSibling?.querySelector('.video');
         if(next)next.preload='auto';
         if(!viewed.has(id)){
@@ -582,48 +531,16 @@ async function deleteProfileVideo(id){if(!confirm('Удалить своё ви�
 
 
 async function openComments(id){
-  currentCommentVideo=id;
-  currentReplyComment=null;
-  openPanel('commentsPanel');
-  $('commentsList').innerHTML='Загрузка…';
-  $('commentInput').placeholder='Написать комментарий…';
-  $('replyingBar')?.classList.remove('show');
+  currentCommentVideo=Number(id); currentReplyComment=null; openPanel('commentsPanel'); $('commentsList').innerHTML='<div class="loading" style="height:120px">Загрузка…</div>';
   try{
-    const d=await api('/api/videos/'+id+'/comments',{headers:headers()});
-    const all=d.comments||[];
-    const roots=all.filter(c=>!c.parent_id);
-    const children=new Map();
-    all.filter(c=>c.parent_id).forEach(c=>{
-      const arr=children.get(Number(c.parent_id))||[];arr.push(c);children.set(Number(c.parent_id),arr);
-    });
-    const renderComment=(c,reply=false)=>`<div class="comment ${reply?'comment-thread':''}" data-comment-id="${c.id}">
-      <div>${c.avatar_url?`<img class="avatar" src="${esc(c.avatar_url)}">`:'<div class="avatar"></div>'}</div>
-      <div style="flex:1;min-width:0">
-        <b>@${esc(c.username||c.first_name||'user')}</b>
-        <p>${esc(c.text)}</p>
-        <div class="status">${new Date(c.created_at).toLocaleString()}</div>
-        <button class="comment-reply" data-reply="${c.id}" data-username="${esc(c.username||c.first_name||'user')}">Ответить</button>
-      </div>
-      ${me&&Number(me.id)===Number(c.user_id)?`<button class="icon delete-comment" data-id="${c.id}" aria-label="Удалить">×</button>`:''}
-    </div>`;
-    $('commentsList').innerHTML=roots.map(c=>renderComment(c)+((children.get(Number(c.id))||[]).map(r=>renderComment(r,true)).join(''))).join('')||'<div class="status">Пока нет комментариев.</div>';
-    document.querySelectorAll('.comment-reply').forEach(b=>b.onclick=()=>{
-      currentReplyComment=Number(b.dataset.reply);
-      $('commentInput').placeholder='Ответить @'+b.dataset.username+'…';
-      $('replyingText').textContent='Ответ пользователю @'+b.dataset.username;
-      $('replyingBar').classList.add('show');
-      $('commentInput').focus();
-    });
-    document.querySelectorAll('.delete-comment').forEach(b=>b.onclick=async()=>{
-      b.disabled=true;
-      try{
-        const x=await api('/api/comments/'+b.dataset.id,{method:'DELETE',headers:headers()});
-        if(x.ok){toast('Комментарий удалён');await openComments(id);}
-      }catch(e){toast(e.message)}finally{b.disabled=false;}
-    });
-  }catch(e){
-    $('commentsList').innerHTML='<div class="status">'+esc(e.message||'Не удалось загрузить комментарии.')+'</div>';
-  }
+    const d=await api('/api/videos/'+id+'/comments',{headers:headers()},12000);
+    if(!d.ok)throw Error('Не удалось загрузить комментарии');
+    const rows=d.comments||[], byParent=new Map(); rows.forEach(c=>{const k=Number(c.parent_id||0);if(!byParent.has(k))byParent.set(k,[]);byParent.get(k).push(c)});
+    const render=(list,depth=0)=>list.map(c=>`<div class="comment" style="margin-left:${Math.min(depth,3)*18}px"><div>${c.avatar_url?`<img class="avatar" src="${esc(c.avatar_url)}">`:'<div class="avatar"></div>'}</div><div style="flex:1;min-width:0"><b>@${esc(c.username||c.first_name||'user')}</b><p>${esc(c.text)}</p><div class="status">${new Date(c.created_at).toLocaleString()}</div><button class="comment-reply" data-id="${c.id}" data-user="${esc(c.username||c.first_name||'user')}">Ответить</button></div>${me&&Number(me.id)===Number(c.user_id)?`<button class="icon delete-comment" data-id="${c.id}" aria-label="Удалить">×</button>`:''}</div>${render(byParent.get(Number(c.id))||[],depth+1)}`).join('');
+    $('commentsList').innerHTML=(render(byParent.get(0)||[])||'<div class="status">Пока нет комментариев.</div>');
+    document.querySelectorAll('.delete-comment').forEach(b=>b.onclick=async()=>{try{await api('/api/comments/'+b.dataset.id,{method:'DELETE',headers:headers()});toast('Комментарий удалён');await openComments(id)}catch(e){toast(e.message)}});
+    document.querySelectorAll('.comment-reply').forEach(b=>b.onclick=()=>{currentReplyComment=Number(b.dataset.id);$('commentInput').value='@'+b.dataset.user+' ';$('commentInput').focus();$('commentSend').title='Ответить на комментарий';});
+  }catch(e){$('commentsList').innerHTML='<div class="status">'+esc(e.message)+'</div>';}
 }
 async function loadSaved(){openPanel('savedPanel');$('savedList').innerHTML='Загрузка…';try{const d=await api('/api/saved',{headers:headers()});const items=d.videos||[];$('savedList').innerHTML=`<div class="saved-grid">${items.map((v,i)=>`<button class="saved-tile" data-saved-index="${i}"><video src="${esc(v.video_url)}" muted playsinline preload="metadata"></video><span class="tile-views">${formatCount(v.views_count)} просмотров</span><span class="tile-caption">${esc(v.caption||'')}</span></button>`).join('')}</div>`+(items.length?'':'<div class="status">Пока нет сохранённых видео.</div>');document.querySelectorAll('[data-saved-index]').forEach(b=>b.onclick=()=>openSavedViewer(items,Number(b.dataset.savedIndex)));}catch(e){$('savedList').innerHTML='<div class="status">'+esc(e.message)+'</div>'}}
 
@@ -633,7 +550,7 @@ async function search(){let q=$('searchInput').value.trim();if(!q){$('searchResu
 document.querySelectorAll('.find-follow').forEach(b=>b.onclick=async()=>{if(b.disabled)return;b.disabled=true;try{let x=await api('/api/users/'+b.dataset.user+'/follow',{method:'POST',headers:headers()});if(x.ok)b.textContent=x.following?'Вы подписаны':'Подписаться'}catch(e){toast(e.message)}finally{b.disabled=false}});document.querySelectorAll('.result-user').forEach(b=>b.onclick=()=>{openPanel('profilePanel');loadProfile(Number(b.dataset.user))});document.querySelectorAll('.hashtag-result').forEach(b=>b.onclick=()=>{$('searchInput').value='#'+b.dataset.tag;search()});document.querySelectorAll('.search-video').forEach(b=>b.onclick=async()=>{try{let d=await api('/api/videos/'+b.dataset.videoId,{headers:headers()});if(d.ok)openSavedViewer([d.video],0)}catch(e){toast(e.message)}})}catch(e){$('searchResults').innerHTML='<div class="status">'+esc(e.message)+'</div>'}}
 
 async function loadAdmin(){openPanel('adminPanel');$('adminContent').innerHTML='Загрузка…';let r=await fetch('/api/admin/reports',{headers:headers()}),d=await r.json();if(!r.ok||!d.ok){$('adminContent').innerHTML='<div class="status">'+esc(d.detail||'Нет доступа')+'</div>';return}if(!d.reports.length){$('adminContent').innerHTML='<div class="status">Открытых жалоб нет.</div>';return}$('adminContent').innerHTML=d.reports.map(x=>`<div class="admin-item"><b>#${x.id} · ${esc(x.reason)}</b><div class="status">Видео #${x.video_id} · @${esc(x.reporter_username||'user')} · ${new Date(x.created_at).toLocaleString()}</div><div>${esc(x.details||'Без комментария')}</div><div class="admin-actions"><button class="secondary admin-resolve" data-id="${x.id}">Закрыть жалобу</button><button class="secondary danger admin-hide" data-id="${x.video_id}">Скрыть видео</button></div></div>`).join('');document.querySelectorAll('.admin-resolve').forEach(b=>b.onclick=async()=>{let x=await fetch('/api/admin/reports/'+b.dataset.id+'/resolve',{method:'POST',headers:headers()}),j=await x.json();if(j.ok){toast('Жалоба закрыта');loadAdmin()}});document.querySelectorAll('.admin-hide').forEach(b=>b.onclick=async()=>{if(!confirm('Скрыть видео из ленты?'))return;let x=await fetch('/api/admin/videos/'+b.dataset.id+'/hide',{method:'POST',headers:headers()}),j=await x.json();if(j.ok){toast('Видео скрыто');loadAdmin();loadFeed(currentFeedMode)}})}
-async function notifications(){openRootPanel('notifyPanel');$('notifyList').innerHTML='<div class="loading" style="height:120px">Загрузка…</div>';try{let d=await api('/api/notifications',{headers:headers()},12000);let map={follow:'подписался(ась) на вас',like:'поставил(а) лайк вашему видео',comment:'оставил(а) комментарий к вашему видео',reply:'ответил(а) на ваш комментарий'};$('notifyList').innerHTML=(d.notifications||[]).map(n=>`<button class="result notification-item" data-video-id="${n.video_id||''}" data-type="${esc(n.type)}" style="width:100%;text-align:left;border:0;background:transparent;color:inherit">${n.avatar_url?`<img class="avatar" src="${esc(n.avatar_url)}">`:'<div class="avatar"></div>'}<div><b>@${esc(n.username||n.first_name||'user')}</b><div class="status">${map[n.type]||'новая активность'} · ${new Date(n.created_at).toLocaleString()}</div></div></button>`).join('')||'<div class="status">Пока нет новых событий.</div>';document.querySelectorAll('.notification-item').forEach(b=>b.onclick=async()=>{const id=b.dataset.videoId;if(id){try{const d=await api('/api/videos/'+id,{headers:headers()});if(d.ok){if(b.dataset.type==='comment'||b.dataset.type==='reply')openComments(id);else openSavedViewer([d.video],0);return}}catch(_){}}const actor=b.querySelector('b')?.textContent?.replace(/^@/,'');if(actor){const r=await api('/api/search?q='+encodeURIComponent('@'+actor),{headers:headers()}).catch(()=>null);const u=r?.users?.[0];if(u){openPanel('profilePanel');loadProfile(Number(u.id))}}});updateUnread()}catch(e){$('notifyList').innerHTML='<div class="status">'+esc(e.message)+'</div>'}}
+async function notifications(){openRootPanel('notifyPanel');$('notifyList').innerHTML='<div class="loading" style="height:120px">Загрузка…</div>';try{let d=await api('/api/notifications',{headers:headers()},12000);let map={follow:'подписался(ась) на вас',comment:'оставил(а) комментарий к вашему видео'};$('notifyList').innerHTML=(d.notifications||[]).map(n=>`<button class="result notification-item" data-video-id="${n.video_id||''}" data-type="${esc(n.type)}" style="width:100%;text-align:left;border:0;background:transparent;color:inherit">${n.avatar_url?`<img class="avatar" src="${esc(n.avatar_url)}">`:'<div class="avatar"></div>'}<div><b>@${esc(n.username||n.first_name||'user')}</b><div class="status">${map[n.type]||'новая активность'} · ${new Date(n.created_at).toLocaleString()}</div></div></button>`).join('')||'<div class="status">Пока нет новых событий.</div>';document.querySelectorAll('.notification-item').forEach(b=>b.onclick=async()=>{const id=b.dataset.videoId;if(id){try{const d=await api('/api/videos/'+id,{headers:headers()});if(d.ok){openComments(id);return}}catch(_){}}const actor=b.querySelector('b')?.textContent?.replace(/^@/,'');if(actor){const r=await api('/api/search?q='+encodeURIComponent('@'+actor),{headers:headers()}).catch(()=>null);const u=r?.users?.[0];if(u){openPanel('profilePanel');loadProfile(Number(u.id))}}});updateUnread()}catch(e){$('notifyList').innerHTML='<div class="status">'+esc(e.message)+'</div>'}}
 
 async function updateUnread(){try{let r=await fetch('/api/notifications/unread-count',{headers:headers()}),d=await r.json();let n=$('notifyBadge');if(d.ok&&d.count>0){n.textContent=d.count>9?'9+':d.count;n.style.display='block'}else n.style.display='none'}catch(_){} }
 $('feed').addEventListener('scroll',loadMoreIfNeeded,{passive:true});
@@ -644,20 +561,15 @@ $('uploadBtn').onclick=()=>openRootPanel('uploadPanel');$('profileBtn').onclick=
 document.querySelectorAll('.report-option').forEach(b=>b.onclick=()=>{currentReportReason=b.dataset.reason;document.querySelectorAll('.report-option').forEach(x=>x.classList.remove('active'));b.classList.add('active');const other=$('reportDetails');if(other){other.classList.toggle('show',currentReportReason==='other');other.required=currentReportReason==='other';if(currentReportReason!=='other')other.value=''}});
 $('reportDetails').oninput=()=>{if(currentReportReason==='other')$('reportSend').disabled=!$('reportDetails').value.trim()};
 $('reportSend').onclick=async()=>{if(!currentReportVideo||!currentReportReason){toast('Выберите причину');return}if(currentReportReason==='other'&&!$('reportDetails').value.trim()){toast('Опишите причину');return}$('reportSend').disabled=true;try{await api('/api/videos/'+currentReportVideo+'/report',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({reason:currentReportReason,details:$('reportDetails').value.trim()})});closePanels();$('reportDetails').value='';toast('Жалоба отправлена')}catch(e){toast(e.message)}finally{$('reportSend').disabled=false}};
-$('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter')search()});$('replyCancel').onclick=()=>{currentReplyComment=null;$('replyingBar').classList.remove('show');$('commentInput').placeholder='Написать комментарий…';$('commentInput').focus()};
-$('commentSend').onclick=async()=>{
-  let t=$('commentInput').value.trim();if(!t||!currentCommentVideo)return;
-  $('commentSend').disabled=true;
-  try{
-    let r=await api('/api/videos/'+currentCommentVideo+'/comments',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({text:t,parent_id:currentReplyComment})});
-    if(r.ok){$('commentInput').value='';currentReplyComment=null;$('replyingBar').classList.remove('show');$('commentInput').placeholder='Написать комментарий…';await openComments(currentCommentVideo);toast('Комментарий добавлен')}
-  }catch(e){toast(e.message)}finally{$('commentSend').disabled=false}
-};
+$('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter')search()});$('commentSend').onclick=async()=>{let t=$('commentInput').value.trim();if(!t||!currentCommentVideo)return;$('commentSend').disabled=true;try{await api('/api/videos/'+currentCommentVideo+'/comments',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({text:t,parent_id:currentReplyComment})});$('commentInput').value='';currentReplyComment=null;$('commentSend').title='';await openComments(currentCommentVideo);toast('Комментарий добавлен')}catch(e){toast(e.message)}finally{$('commentSend').disabled=false}};
 $('publishBtn').onclick=async()=>{let file=$('videoFile').files[0],status=$('uploadStatus');if(!file){status.textContent='Выберите видео.';return}if(file.size>50*1024*1024){status.textContent='Максимальный размер — 50 МБ.';return}let f=new FormData();f.append('video',file);f.append('caption',$('caption').value.trim());$('publishBtn').disabled=true;status.textContent='Загрузка…';try{let r=await fetch('/api/videos/upload',{method:'POST',headers:headers(),body:f});let d=await r.json();if(!r.ok||!d.ok)throw Error(d.detail||'Ошибка загрузки');closePanels();$('videoFile').value='';$('caption').value='';await loadFeed(currentFeedMode);toast('Видео опубликовано')}catch(e){status.textContent=e.message}finally{$('publishBtn').disabled=false}};
 $('saveProfileBtn').onclick=async()=>{let body={first_name:$('editName').value.trim(),username:$('editUsername').value.trim().replace(/^@/,''),bio:$('editBio').value.trim()};$('saveProfileBtn').disabled=true;try{let d=await api('/api/me',{method:'PATCH',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify(body)});me={...me,...d.user};toast('Профиль обновлён');closePanels();await loadProfile()}catch(e){toast(e.message)}finally{$('saveProfileBtn').disabled=false}};
 document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{let n=b.dataset.nav;document.querySelectorAll('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));if(n==='home'){closePanels();feed.scrollTo({top:0,behavior:'smooth'});}if(n==='search'){openRootPanel('searchPanel');setTimeout(()=>$('searchInput')?.focus(),220);}if(n==='profile')$('profileBtn').click();if(n==='notify')notifications();if(n==='create')$('uploadBtn').click()});
 // Hide the legacy single-video viewer actions; new saved viewer handles vertical playback.
 $('viewerLike').onclick=()=>viewerData&&toggleLikeButton($('viewerLike'),false);$('viewerSave').onclick=async()=>{if(!viewerData)return;let d=await api('/api/videos/'+viewerData.id+'/save',{method:'POST',headers:headers()}).catch(()=>null);if(d?.ok){viewerData.saved=d.saved;toast(d.saved?'Сохранено':'Убрано из сохранённых')}};$('viewerComment').onclick=()=>viewerData&&openComments(viewerData.id);$('viewerReport').onclick=()=>{if(viewerData){currentReportVideo=viewerData.id;openPanel('reportPanel',{replace:true})}};
+// Critical: bind feed actions before the first render. Without this, like/comment/more buttons are inert.
+bindFeed();
+
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){document.querySelectorAll('.feed .video').forEach(v=>{v.__wasPlaying=!v.paused;try{v.pause()}catch(_){};});}
   else{const active=document.querySelector('.slide');const v=active?.querySelector('.video');if(v&&!document.body.classList.contains('panel-active')&&v.__wasPlaying&&!active.classList.contains('paused')){v.play().catch(()=>{v.muted=true;v.play().catch(()=>{})});}}
