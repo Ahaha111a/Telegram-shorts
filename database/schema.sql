@@ -126,3 +126,12 @@ create index if not exists idx_videos_hashtags on videos using gin(hashtags);
 create index if not exists idx_follows_following_id on follows(following_id);
 create index if not exists idx_notifications_user_id on notifications(user_id,created_at desc);
 create index if not exists idx_reports_status_created_at on reports(status,created_at desc);
+
+-- Comment likes (safe to run repeatedly)
+create table if not exists comment_likes (
+  comment_id bigint not null references comments(id) on delete cascade,
+  user_id bigint not null references users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (comment_id,user_id)
+);
+create index if not exists idx_comment_likes_comment_id on comment_likes(comment_id);
