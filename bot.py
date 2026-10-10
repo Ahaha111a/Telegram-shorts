@@ -121,6 +121,14 @@ async def init_db():
             created_at timestamptz not null default now()
         );
 
+        create table if not exists comment_likes (
+            comment_id bigint not null references comments(id) on delete cascade,
+            user_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (comment_id,user_id)
+        );
+        create index if not exists idx_comment_likes_comment_id on comment_likes(comment_id);
+
         create table if not exists follows (
             follower_id bigint not null references users(id) on delete cascade,
             following_id bigint not null references users(id) on delete cascade,
@@ -471,8 +479,18 @@ async def get_me(request: Request):
             """,
             int(user["id"]),
         )
+        videos = await connection.fetch(
+            """select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
+                      coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url,
+                      exists(select 1 from video_likes l where l.video_id=v.id and l.user_id=$1) as liked,
+                      exists(select 1 from video_saves s where s.video_id=v.id and s.user_id=$1) as saved,
+                      (select count(*) from video_saves s where s.video_id=v.id) as saves_count
+               from videos v join users u on u.id=v.user_id
+               where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60""",
+            int(user["id"]),
+        )
 
-    return {"ok": True, "user": dict(row) if row else None, "is_admin": int(user["id"]) in ADMIN_TELEGRAM_IDS}
+    return {"ok": True, "user": dict(row) if row else None, "videos": [dict(v) for v in videos], "is_admin": int(user["id"]) in ADMIN_TELEGRAM_IDS}
 
 
 @app.get("/api/feed")
@@ -847,6 +865,8 @@ async def get_saved(request: Request, offset: int = 0, limit: int = 60):
         rows = await connection.fetch("""
             select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
                    (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
+                   exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
+                   exists(select 1 from follows f where f.follower_id=$1 and f.following_id=v.user_id) as following,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url, true as saved
             from video_saves s join videos v on v.id=s.video_id join users u on u.id=v.user_id
             where s.user_id=$1 and not v.is_deleted
@@ -880,8 +900,29 @@ async def delete_comment(comment_id: int, request: Request):
             if not row: raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
             count=await connection.fetchval("""with recursive tree as (select id from comments where id=$1 union all select c.id from comments c join tree t on c.parent_id=t.id) select count(*) from tree""", comment_id)
             await connection.execute("delete from comments where id=$1", comment_id)
-            await connection.execute("update videos set comments_count=greatest(comments_count-$2,0) where id=$1", row["video_id"], int(count or 1))
-    return {"ok":True,"deleted":True,"deleted_count":int(count or 1)}
+            await connection.execute("update videos set comments_count=(select count(*) from comments where video_id=$1) where id=$1", row["video_id"])
+            remaining = await connection.fetchval("select comments_count from videos where id=$1", row["video_id"])
+    return {"ok":True,"deleted":True,"deleted_count":int(count or 1),"video_id":int(row["video_id"]),"comments_count":int(remaining or 0)}
+
+@app.post("/api/comments/{comment_id}/like")
+async def toggle_comment_like(comment_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    uid = int(user["id"])
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            exists = await connection.fetchval("select 1 from comments where id=$1 for update", comment_id)
+            if not exists:
+                raise HTTPException(status_code=404, detail="Комментарий не найден")
+            liked = await connection.fetchval("select 1 from comment_likes where comment_id=$1 and user_id=$2", comment_id, uid)
+            if liked:
+                await connection.execute("delete from comment_likes where comment_id=$1 and user_id=$2", comment_id, uid)
+                now_liked = False
+            else:
+                await connection.execute("insert into comment_likes(comment_id,user_id) values($1,$2) on conflict do nothing", comment_id, uid)
+                now_liked = True
+            count = await connection.fetchval("select count(*) from comment_likes where comment_id=$1", comment_id)
+    return {"ok": True, "liked": now_liked, "likes_count": int(count or 0)}
 
 @app.get("/api/notifications/unread-count")
 async def unread_notifications(request: Request):
@@ -902,7 +943,12 @@ async def get_profile(user_id: int, request: Request):
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
           from users u where u.id=$2""", int(viewer["id"]), user_id)
-        videos = await connection.fetch("select id,video_url,caption,hashtags,views_count,likes_count,comments_count,created_at from videos where user_id=$1 and not is_deleted order by created_at desc limit 60", user_id)
+        videos = await connection.fetch("""select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
+          coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url,
+          exists(select 1 from video_likes l where l.video_id=v.id and l.user_id=$2) as liked,
+          exists(select 1 from video_saves s where s.video_id=v.id and s.user_id=$2) as saved,
+          (select count(*) from video_saves s where s.video_id=v.id) as saves_count
+          from videos v join users u on u.id=v.user_id where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60""", user_id, int(viewer["id"]))
     if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
     return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
 
@@ -910,7 +956,7 @@ async def get_profile(user_id: int, request: Request):
 async def search(q: str = "", request: Request = None):
     if request is None:
         raise HTTPException(status_code=400, detail="Запрос не указан")
-    await get_authenticated_user(request)
+    viewer = await get_authenticated_user(request)
     query = q.strip()[:80]
     if not query:
         return {"ok": True, "users": [], "videos": [], "hashtags": []}
@@ -929,13 +975,17 @@ async def search(q: str = "", request: Request = None):
             pattern,
         )
         videos = await connection.fetch(
-            """select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,
-                u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url
+            """select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
+                (select count(*) from video_saves s where s.video_id=v.id) as saves_count,
+                exists(select 1 from video_likes l where l.video_id=v.id and l.user_id=$3) as liked,
+                exists(select 1 from video_saves s where s.video_id=v.id and s.user_id=$3) as saved,
+                exists(select 1 from follows f where f.follower_id=$3 and f.following_id=v.user_id) as following,
+                coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url
                from videos v join users u on u.id=v.user_id
                where not v.is_deleted
                  and (coalesce(v.caption,'') ilike $1 or coalesce(u.custom_username,u.username,'') ilike $1 or $2 = any(v.hashtags))
                order by v.created_at desc limit 20""",
-            pattern, raw,
+            pattern, raw, int(viewer["id"]),
         )
         hashtag_rows = await connection.fetch(
             """select tag, count(*) as videos_count
@@ -997,9 +1047,12 @@ async def update_me(request: Request):
 
 @app.get("/api/videos/{video_id}/comments")
 async def get_comments(video_id:int, request:Request):
-    await get_authenticated_user(request); p=await get_db_pool()
+    viewer = await get_authenticated_user(request); p=await get_db_pool()
     async with p.acquire() as c:
-        rows=await c.fetch("""select c.id,c.parent_id,c.text,c.created_at,u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url from comments c join users u on u.id=c.user_id where c.video_id=$1 and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted) order by c.created_at asc limit 200""",video_id)
+        rows=await c.fetch("""select c.id,c.parent_id,c.text,c.created_at,u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url,
+          (select count(*) from comment_likes cl where cl.comment_id=c.id) as likes_count,
+          exists(select 1 from comment_likes cl where cl.comment_id=c.id and cl.user_id=$2) as liked
+          from comments c join users u on u.id=c.user_id where c.video_id=$1 and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted) order by c.created_at asc limit 200""",video_id,int(viewer["id"]))
     return {"ok":True,"comments":[dict(x) for x in rows]}
 
 @app.post("/api/videos/{video_id}/comments")
@@ -1020,11 +1073,12 @@ async def add_comment(video_id:int, request:Request):
             if parent_owner is None: raise HTTPException(status_code=400,detail="Комментарий для ответа не найден")
         row=await c.fetchrow("insert into comments(video_id,user_id,text,parent_id) values($1,$2,$3,$4) returning id,parent_id,text,created_at",video_id,int(user["id"]),text,parent_id)
         await c.execute("update videos set comments_count=comments_count+1 where id=$1",video_id)
+        comments_count = await c.fetchval("select comments_count from videos where id=$1", video_id)
         if parent_owner is not None and int(parent_owner)!=int(user["id"]):
             await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'reply',$3)",int(parent_owner),int(user["id"]),video_id)
         elif int(owner)!=int(user["id"]):
             await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
-    return {"ok":True,"comment":dict(row)}
+    return {"ok":True,"comment":dict(row),"comments_count":int(comments_count or 0)}
 
 @app.post("/api/users/{user_id}/follow")
 async def toggle_follow(user_id:int, request:Request):
