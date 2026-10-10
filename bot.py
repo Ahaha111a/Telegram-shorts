@@ -315,7 +315,10 @@ def validate_telegram_init_data(init_data: str):
     if not init_data:
         raise ValueError("Telegram initData отсутствует")
 
-    parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+    pairs = parse_qsl(init_data, keep_blank_values=True)
+    parsed = dict(pairs)
+    if len(parsed) != len(pairs):
+        raise ValueError("В initData обнаружены повторяющиеся параметры")
     received_hash = parsed.pop("hash", None)
     if not received_hash:
         raise ValueError("В initData отсутствует hash")
@@ -339,18 +342,35 @@ def validate_telegram_init_data(init_data: str):
     if not hmac.compare_digest(calculated_hash, received_hash):
         raise ValueError("Неверная подпись Telegram initData")
 
-    auth_date = int(parsed.get("auth_date", "0"))
-    if auth_date and time.time() - auth_date > 86400:
+    auth_date_raw = parsed.get("auth_date")
+    if not auth_date_raw:
+        raise ValueError("В initData отсутствует auth_date")
+    try:
+        auth_date = int(auth_date_raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Некорректный auth_date в initData") from error
+    now = int(time.time())
+    if auth_date > now + 60:
+        raise ValueError("Время initData находится в будущем")
+    if now - auth_date > 86400:
         raise ValueError("Telegram initData устарел")
 
     user_json = parsed.get("user")
     if not user_json:
         raise ValueError("Данные пользователя отсутствуют")
-
-    user_data = json.loads(user_json)
-    if "id" not in user_data:
+    try:
+        user_data = json.loads(user_json)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError("Некорректные данные пользователя в initData") from error
+    if not isinstance(user_data, dict) or "id" not in user_data:
         raise ValueError("Telegram user id отсутствует")
-
+    try:
+        user_id = int(user_data["id"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("Некорректный Telegram user id") from error
+    if user_id <= 0:
+        raise ValueError("Некорректный Telegram user id")
+    user_data["id"] = user_id
     return user_data
 
 
