@@ -31,3 +31,10 @@
 - Нажатие лайка не меняет состояние воспроизведения.
 - Feed и saved viewer используют общий обработчик и синхронизируют состояние кнопок/счётчика.
 - Проверять Pointer Events и не запускать одновременно второй `dblclick`-обработчик в современных браузерах.
+
+
+## Audit follow-up — 2026-10-11
+- [P1] Bottom shading: feed and saved-viewer overlays are explicitly transparent; check the actual Telegram WebView because any darkening baked into source media is not removable by CSS.
+- [P1] Shared URLs: share action now requests `/api/share-link/{video_id}` and creates `https://t.me/{bot_username}?startapp=video_{id}`; requires Main Mini App configured in BotFather. The start parameter is resolved on app startup and opens the video viewer.
+- [P1] Profile cover: profile and saved grids use `thumbnail_url` as the `poster`; if older uploads have no thumbnail, browser-generated first-frame behavior remains dependent on the video codec/browser.
+- [P1] Swipe navigation: saved/profile/search video results share the vertical snap viewer; inactive videos use `preload=none`. Validate with real Telegram Android gestures and slow-network conditions.

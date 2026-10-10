@@ -62,3 +62,11 @@
 - PASS: headless Chromium с задержкой mock API — два быстрых двойных тапа приводят к согласованному исходному состоянию без параллельных toggle-запросов.
 - PASS: computed styles подтверждают, что `.video-gradient` и `.viewer-overlay` больше не содержат нижний чёрный стоп; overlay просмотрщика имеет `pointer-events:none`.
 - BLOCKED: реальный Telegram WebView, физический Android, Railway и Supabase не подключались; проверка браузера с mock API не заменяет устройство.
+
+
+## Regression cases added (must run on Telegram Android)
+- [ ] Confirm no CSS overlay shades the lower video area in feed and saved viewer.
+- [ ] Share a video, open the t.me startapp link, and verify the same video opens inside the Mini App (requires Main Mini App setup in BotFather).
+- [ ] Swipe exactly once up/down in feed, profile, saved, and search viewers; confirm one item transition per swipe.
+- [ ] Verify profile grid uses `thumbnail_url` posters and remains responsive with many videos.
+- [ ] Test low-bandwidth loading, rapid tab switching, closing viewers, and return from background.

@@ -36,3 +36,10 @@
 
 | REQ-024 | P1 | Двойной тап ставит/снимает лайк как единое действие | Один двойной тап = один toggle; повторный двойной тап меняет состояние обратно; кнопка/счётчик синхронизированы | BROWSER-MOCK-PASS, DEVICE-OPEN |
 | REQ-025 | P1 | В видео нет тяжёлого нижнего затемнения | Градиент не содержит чёрного нижнего стопа ни в ленте, ни в просмотрщике | COMPUTED-STYLE-PASS, DEVICE-OPEN |
+
+
+## Share and playback reliability additions
+- Share links must be Telegram Mini App `startapp` links, not direct web URLs. BotFather Main Mini App configuration is a deployment prerequisite.
+- Feed, profile, saved, and search entry points must use one vertical snap viewer with consistent swipe behavior.
+- Video grids should display stored thumbnails when available and must not eagerly preload every video.
+- Feed overlays must not apply a bottom gradient; readability should come from localized text shadows only.
