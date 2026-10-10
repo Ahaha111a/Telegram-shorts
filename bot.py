@@ -612,6 +612,24 @@ def extract_hashtags(text: str):
     return tags
 
 
+@app.get("/api/share-link/{video_id}")
+async def share_link(video_id: int, request: Request):
+    # Only share videos that are available to the current authenticated viewer.
+    await get_authenticated_user(request)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select exists(select 1 from videos where id=$1 and not is_deleted)", video_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Видео недоступно")
+    try:
+        bot_info = await bot.get_me()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Не удалось получить ссылку Telegram Mini App")
+    if not bot_info.username:
+        raise HTTPException(status_code=503, detail="У бота не настроено имя пользователя")
+    # Requires the bot's Main Mini App to be configured in BotFather.
+    return {"ok": True, "url": f"https://t.me/{bot_info.username}?startapp=video_{video_id}"}
+
 @app.get("/api/videos/{video_id}")
 async def get_video(video_id: int, request: Request):
     user = await get_authenticated_user(request)
@@ -619,7 +637,7 @@ async def get_video(video_id: int, request: Request):
     uid = int(user["id"])
     async with pool.acquire() as connection:
         row = await connection.fetchrow("""
-            select v.id,v.user_id,v.video_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
+            select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
                    (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
                    exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
