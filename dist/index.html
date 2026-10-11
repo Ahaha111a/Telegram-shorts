@@ -61,6 +61,25 @@
 .meta{bottom:calc(env(safe-area-inset-bottom) + 24px)}
 .toast{bottom:calc(env(safe-area-inset-bottom) + 20px)}
 @media(max-width:360px){.topbar{padding-left:10px;padding-right:10px}.top-actions{gap:4px}.top-icon{width:34px;height:34px;min-width:34px}.brand-lockup{font-size:17px;letter-spacing:-.5px}}
+
+/* v16 regression guard: the video pixels must never receive a bottom scrim */
+.video-gradient,.slide-top-safe{background:none!important;box-shadow:none!important}
+.slide::before,.slide::after,.video::before,.video::after{background:none!important;box-shadow:none!important}
+.meta{background:transparent!important;background-image:none!important;box-shadow:none!important}
+.meta::before,.meta::after{content:none!important;display:none!important;background:none!important}
+.slide{background:#05070b}
+.video{filter:none!important;opacity:1!important}
+.grid-video-open{background:#090d15;border-radius:0;overflow:hidden}
+.grid-video-open video{background:#090d15;object-fit:cover}
+.grid-item{isolation:isolate;border-radius:12px;overflow:hidden;background:#090d15;box-shadow:0 5px 18px rgba(0,0,0,.18)}
+.grid-delete{width:32px;height:32px;border-radius:50%;background:rgba(8,11,18,.78);border-color:rgba(255,255,255,.2);backdrop-filter:blur(12px);box-shadow:0 4px 14px rgba(0,0,0,.22)}
+.profile-hero{padding:8px 0 14px}
+.profile-avatar{box-shadow:0 0 0 3px rgba(145,77,255,.18),0 8px 26px rgba(0,0,0,.24)}
+.profile-stat{border-color:rgba(255,255,255,.1);background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.018));transition:transform .18s ease,border-color .18s ease}
+.profile-stat:active,.profile-actions button:active,.profile-tab:active{transform:scale(.975)}
+.profile-tab{transition:color .2s ease,opacity .2s ease}
+.grid-video-open:focus-visible,.grid-delete:focus-visible{outline:2px solid #9c65ff;outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.profile-stat,.profile-tab,.grid-delete{transition:none!important}}
 </style></head><body><div class="splash" id="splash"><div class="splash-mark"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/></svg></div><div class="splash-wordmark">Telegram <span>Shorts</span></div><div class="splash-subtitle">Короткие видео. Большие эмоции.</div><div class="splash-bar"><i id="splashBar"></i></div></div>
 <div class="app" id="app">
   <header class="topbar">
@@ -610,11 +629,11 @@ async function loadProfile(userId=null){
     </div>
     ${own?`<div class="profile-actions"><button class="secondary" id="editProfileBtn">${icon('edit')} Редактировать</button><button class="secondary" id="savedOpenBtn">${icon('bookmark')} Сохранённые</button></div>`:`<div class="profile-actions single"><button class="primary" id="profileFollow">${u.following?icon('check')+' Вы подписаны':'+ Подписаться'}</button></div>`}
     <div class="profile-tabs"><button class="profile-tab active" id="profileVideosTab">Видео</button>${own?'<button class="profile-tab" id="savedTab">Сохранённые</button>':''}</div>
-    <div class="grid profile-grid" id="profileGrid">${vids.map((v,i)=>`<div class="grid-item"><button class="grid-video-open" data-profile-video="${v.id}" aria-label="Открыть видео"><video src="${esc(v.video_url)}" ${v.thumbnail_url?`poster="${esc(v.thumbnail_url)}"`:""} muted playsinline preload="none"></video><span class="grid-overlay">${icon('play')} ${formatCount(v.views_count||0)}</span></button>${own?`<button class="grid-delete" data-profile-delete="${v.id}" aria-label="Удалить">${icon('more')}</button>`:''}</div>`).join('')}</div>
+    <div class="grid profile-grid" id="profileGrid">${vids.map((v,i)=>`<div class="grid-item"><button class="grid-video-open" data-profile-video="${v.id}" aria-label="Открыть видео"><video src="${esc(v.video_url)}" ${v.thumbnail_url?`poster="${esc(v.thumbnail_url)}"`:""} muted playsinline preload="metadata"></video><span class="grid-overlay">${icon('play')} ${formatCount(v.views_count||0)}</span></button>${own?`<button class="grid-delete" data-profile-delete="${v.id}" aria-label="Удалить">${icon('more')}</button>`:''}</div>`).join('')}</div>
     ${!vids.length?'<div class="profile-empty"><div>'+icon('play')+'</div><p>Пока нет опубликованных видео.</p></div>':''}`;
   document.querySelectorAll('.profile-stat').forEach(b=>b.onclick=()=>b.dataset.type?loadPeople(Number(u.id),b.dataset.type):null);
   document.querySelectorAll('[data-profile-video]').forEach((b,i)=>b.onclick=e=>{e.stopPropagation();openSavedViewer(vids,i)});
-  document.querySelectorAll('[data-profile-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();deleteProfileVideo(Number(b.dataset.profileDelete))});
+  document.querySelectorAll('[data-profile-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=Number(b.dataset.profileDelete);viewerData=vids.find(x=>Number(x.id)===id)||null;openMoreMenu(id);});
   if(own){
     $('savedOpenBtn').onclick=()=>{$('savedTab')?.click();};
     $('profileVideosTab').onclick=()=>{
@@ -639,9 +658,9 @@ async function loadProfile(userId=null){
 function renderProfileGrid(items,own,isSaved=false){
   const grid=$('profileGrid');if(!grid)return;
   if(!items.length){grid.innerHTML='<div class="profile-empty" style="grid-column:1/-1"><div>'+icon('bookmark')+'</div><p>'+ (isSaved?'Пока нет сохранённых видео.':'Пока нет опубликованных видео.') +'</p></div>';return;}
-  grid.innerHTML=items.map((v,i)=>`<div class="grid-item"><button class="grid-video-open" data-profile-video="${v.id}" aria-label="Открыть видео"><video src="${esc(v.video_url)}" ${v.thumbnail_url?`poster="${esc(v.thumbnail_url)}"`:""} muted playsinline preload="none"></video><span class="grid-overlay">${icon('play')} ${formatCount(v.views_count||0)}</span></button>${own&&!isSaved?`<button class="grid-delete" data-profile-delete="${v.id}" aria-label="Удалить">${icon('more')}</button>`:''}</div>`).join('');
+  grid.innerHTML=items.map((v,i)=>`<div class="grid-item"><button class="grid-video-open" data-profile-video="${v.id}" aria-label="Открыть видео"><video src="${esc(v.video_url)}" ${v.thumbnail_url?`poster="${esc(v.thumbnail_url)}"`:""} muted playsinline preload="metadata"></video><span class="grid-overlay">${icon('play')} ${formatCount(v.views_count||0)}</span></button>${own&&!isSaved?`<button class="grid-delete" data-profile-delete="${v.id}" aria-label="Удалить">${icon('more')}</button>`:''}</div>`).join('');
   document.querySelectorAll('[data-profile-video]').forEach((b,i)=>b.onclick=e=>{e.stopPropagation();const v=items.find(x=>Number(x.id)===Number(b.dataset.profileVideo))||items[i];if(v)openSavedViewer(items,i,isSaved);});
-  document.querySelectorAll('[data-profile-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();deleteProfileVideo(Number(b.dataset.profileDelete));});
+  document.querySelectorAll('[data-profile-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=Number(b.dataset.profileDelete);viewerData=items.find(x=>Number(x.id)===id)||null;openMoreMenu(id);});
 }
 
 async function deleteProfileVideo(id){if(!await askConfirm('Удалить своё видео? Оно будет удалено без возможности восстановления.'))return;try{await api('/api/videos/'+id,{method:'DELETE',headers:headers()});toast('Видео удалено');await loadProfile();await loadFeed(currentFeedMode)}catch(e){toast(e.message)}}
