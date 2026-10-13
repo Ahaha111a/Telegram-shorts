@@ -121,6 +121,100 @@ html, body, #app, .app, .feed {
   background: transparent !important;
 }
 
+
+/* v18: Full-bleed video viewport — no lower fade/scrim layer.
+   The feed and each slide use the same measured app viewport, avoiding exposed
+   dark slide backgrounds caused by mismatched 100dvh/Telegram WebView heights. */
+:root { --shorts-app-height: 100dvh; }
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000 !important;
+}
+body, #app, .app {
+  height: var(--shorts-app-height) !important;
+  min-height: 0 !important;
+  max-height: var(--shorts-app-height) !important;
+}
+.app { position: relative !important; overflow: hidden !important; }
+.feed {
+  position: absolute !important;
+  inset: 0 !important;
+  height: var(--shorts-app-height) !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  background: transparent !important;
+  background-image: none !important;
+  scroll-snap-type: y mandatory !important;
+}
+.feed > .slide {
+  position: relative !important;
+  width: 100% !important;
+  height: var(--shorts-app-height) !important;
+  min-height: var(--shorts-app-height) !important;
+  max-height: var(--shorts-app-height) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background: #000 !important;
+  isolation: isolate;
+}
+.feed > .slide > .video {
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  opacity: 1 !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+  z-index: 0 !important;
+}
+.feed > .slide > .video-gradient,
+.feed > .slide > .slide-top-safe,
+.feed > .slide > .video-gesture-layer {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+  opacity: 1 !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+  pointer-events: none !important;
+}
+.feed > .slide > .video-gradient { display: none !important; }
+.feed > .slide::before,
+.feed > .slide::after,
+.feed > .slide > .video::before,
+.feed > .slide > .video::after,
+.feed > .slide > .video-gradient::before,
+.feed > .slide > .video-gradient::after,
+.feed > .slide > .meta::before,
+.feed > .slide > .meta::after {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+  opacity: 0 !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+.viewer-item .viewer-overlay { display: none !important; }
+.viewer-item .viewer-video {
+  opacity: 1 !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+  mask: none !important;
+  -webkit-mask: none !important;
+}
+
 </style></head><body><div class="splash" id="splash"><div class="splash-mark"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/></svg></div><div class="splash-wordmark">Telegram <span>Shorts</span></div><div class="splash-subtitle">Короткие видео. Большие эмоции.</div><div class="splash-bar"><i id="splashBar"></i></div></div>
 <div class="app" id="app">
   <header class="topbar">
