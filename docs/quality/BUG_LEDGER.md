@@ -49,3 +49,9 @@
 - Причина в CSS v19: viewer наследовал размеры и overflow обычной bottom-sheet панели без определённой высоты для внутреннего scroll-контейнера.
 - Исправление: полноэкранная панель, заданные высоты shell/track/item и scroll position, рассчитанная по фактической высоте item.
 
+
+
+## v21 update — main-feed bottom band
+- Main feed viewport uses `window.innerHeight` as its primary height source and no longer clamps to the potentially shorter Telegram `viewportHeight`/`visualViewport` values.
+- Directly applies the measured height to the feed and existing slides; disables feed-only scrim/pseudo-elements; splash is removed after fade-out.
+- Not confirmed resolved until v21 is served by Railway and visually checked on Android Telegram.
