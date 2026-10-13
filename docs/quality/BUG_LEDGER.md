@@ -38,3 +38,14 @@
 - [P1] Shared URLs: share action now requests `/api/share-link/{video_id}` and creates `https://t.me/{bot_username}?startapp=video_{id}`; requires Main Mini App configured in BotFather. The start parameter is resolved on app startup and opens the video viewer.
 - [P1] Profile cover: profile and saved grids use `thumbnail_url` as the `poster`; if older uploads have no thumbnail, browser-generated first-frame behavior remains dependent on the video codec/browser.
 - [P1] Swipe navigation: saved/profile/search video results share the vertical snap viewer; inactive videos use `preload=none`. Validate with real Telegram Android gestures and slow-network conditions.
+
+## BUG-010 — тёмная область снизу видео / версия фронтенда
+- Статус: исправление v20 подготовлено; требуется подтверждение на Android после deployment.
+- Изменения: измерение viewport из визуального окна, полное отключение feed scrim/псевдоэлементов, абсолютный путь `dist`, `/health/build` и заголовок сборки.
+- Проверка: открыть `/health/build`, убедиться в `v20.0.0`, затем проверить Mini App на устройстве.
+
+## BUG-011 — прокрутка видео в профиле
+- Статус: исправление v20 подготовлено; требуется подтверждение на Android.
+- Причина в CSS v19: viewer наследовал размеры и overflow обычной bottom-sheet панели без определённой высоты для внутреннего scroll-контейнера.
+- Исправление: полноэкранная панель, заданные высоты shell/track/item и scroll position, рассчитанная по фактической высоте item.
+
