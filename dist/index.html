@@ -80,6 +80,47 @@
 .profile-tab{transition:color .2s ease,opacity .2s ease}
 .grid-video-open:focus-visible,.grid-delete:focus-visible{outline:2px solid #9c65ff;outline-offset:2px}
 @media(prefers-reduced-motion:reduce){.profile-stat,.profile-tab,.grid-delete{transition:none!important}}
+
+/* v17: HARD REMOVE ANY LOWER SCREEN SCRIM.
+   Keep video pixels untouched; no fixed bottom overlay or fade is permitted. */
+html, body, #app, .app, .feed {
+  background-image: none !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+#app::before, #app::after, .app::before, .app::after,
+.feed::before, .feed::after, .slide::before, .slide::after,
+.video::before, .video::after, .video-gradient::before, .video-gradient::after,
+.slide-top-safe::before, .slide-top-safe::after,
+.meta::before, .meta::after {
+  content: none !important;
+  display: none !important;
+  background: transparent !important;
+  background-image: none !important;
+  opacity: 0 !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+.video-gradient, .slide-top-safe, .video-gesture-layer {
+  background: transparent !important;
+  background-image: none !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+  filter: none !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+.video, .viewer-video {
+  filter: none !important;
+  opacity: 1 !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  box-shadow: none !important;
+}
+.slide {
+  background: transparent !important;
+}
+
 </style></head><body><div class="splash" id="splash"><div class="splash-mark"><svg class="svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7Z"/><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/></svg></div><div class="splash-wordmark">Telegram <span>Shorts</span></div><div class="splash-subtitle">Короткие видео. Большие эмоции.</div><div class="splash-bar"><i id="splashBar"></i></div></div>
 <div class="app" id="app">
   <header class="topbar">
