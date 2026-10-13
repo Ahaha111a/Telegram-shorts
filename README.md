@@ -61,3 +61,10 @@ The production Mini App is served from `dist/index.html`.
 - Verified the bottom navigation markup and delegated handlers are removed and top-bar action handlers remain wired.
 - Verified initData rejects duplicate parameters, missing/invalid/future/expired auth_date values and invalid user IDs.
 - Real Telegram/Railway/Supabase runtime tests were not performed; deploy and verify against connected services before announcing production readiness.
+## Проверка версии после обновления (v20.0.0)
+
+После Commit changes и успешного Railway deployment откройте в браузере:
+`https://telegram-shorts-production.up.railway.app/health/build`
+
+Ответ должен содержать `"build": "v20.0.0"` и `"index_exists": true`. Если номер другой, новая версия ещё не обслуживается активным Railway deployment: проверьте service, branch и последний deployment. `dist/index.html` — рабочий фронтенд; `src/main.jsx` и `src/style.css` не собираются текущим `package.json` и не заменяют `dist/index.html`.
+

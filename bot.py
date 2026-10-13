@@ -1206,7 +1206,7 @@ async def db_health_check():
         return JSONResponse(status_code=503, content={"status":"error","database":False})
 
 
-DIST_DIR = Path("dist")
+DIST_DIR = Path(__file__).resolve().parent / "dist"
 if (DIST_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 
@@ -1220,9 +1220,21 @@ async def home():
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
+                "X-Telegram-Shorts-Build": "v20.0.0",
             },
         )
     return JSONResponse({"status": "ok", "service": "Telegram Shorts"})
+
+
+@app.get("/health/build")
+async def build_health_check():
+    index_file = DIST_DIR / "index.html"
+    return {
+        "service": "Telegram Shorts",
+        "build": "v20.0.0",
+        "index_exists": index_file.is_file(),
+        "index_bytes": index_file.stat().st_size if index_file.is_file() else 0,
+    }
 
 
 @app.get("/favicon.ico")
