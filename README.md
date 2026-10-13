@@ -1,48 +1,41 @@
-# Telegram Shorts — v22.0.0
+# Telegram Shorts — Stable Social v5
 
-**Production Mini App:** `dist/index.html`  
-**Railway start command:** `python bot.py`
-
-v22 applies a final full-bleed layout to the main feed, removes any feed scrim/pseudo-elements, and reframes main-feed video upward to hide a bottom fade if it is baked into the media. Profile viewer framing and backend logic are preserved. See `docs/quality/BOTTOM_SCRIM_FIX_V22.md`.
-
-# Telegram Shorts — Stable Social v12
-
-Production Telegram Mini App + bot for a TikTok/Reels-style vertical short-video feed.
+Production-ready Telegram Mini App + bot for a vertical short-video feed, with mobile-first UI/UX and reliable panel navigation.
 
 ## Production
-Railway start command:
+
+Railway runs the backend with:
+
 ```bash
 python bot.py
 ```
-The production Mini App is served from `dist/index.html`.
 
-## v12 fixes and improvements
-- Removed the bottom navigation element, styles, event delegation, and reserved vertical space completely.
-- Moved Search, Create, Notifications, and Profile into compact top-bar actions; unread notification badge remains available.
-- Hardened Telegram initData validation: duplicate query parameters, missing/malformed auth_date, future timestamps, expired signatures, and invalid user IDs are rejected.
+The production Mini App is served directly from `dist/index.html` by the FastAPI app.
 
-## v11 fixes and improvements
-- `/api/me` now returns the current user’s published videos, fixing the empty profile tab.
-- Comment likes with per-user uniqueness, live counts, and migration on startup.
-- Nested comments/replies use a clearer threaded visual treatment.
-- Comment deletion confirms first and recalculates the video comment count from the actual remaining rows.
-- The alternate video viewer now includes like/comment/follow/share/save/more actions for search, profile, and saved videos.
-- Removed the dark scrim from the bottom navigation; the panel itself remained in v11 and is fully removed in v12.
-- Destructive confirmations use Telegram WebApp confirmation UI when available.
+## Included
 
-## Previous UI foundation
-- UI Foundation rebuilt around one consistent spacing/typography/icon system
-- TikTok/Reels-inspired feed interaction model
-- Like/save/follow actions are isolated from video playback
-- Optimistic like UI with rollback on network failure
-- Stable panel stack + Telegram Back + backdrop + safe-area handling
-- Top-bar navigation remains available when no blocking panel is open
-- Profile statistics use fixed tabular numeric layout
-- Watch-history UI and watch-history storage are not used by the app
-- Missing moderation/preference tables are created automatically at startup
-- Production errors return a safe JSON response instead of raw internal details
+- Telegram WebApp authentication with server-side validation
+- Smooth vertical video feed with autoplay/pause and scroll-snap
+- Recommended / Following switch with stale-request protection
+- Likes, saves, comments, follows and view tracking
+- Saved videos and watch history with vertical viewer
+- Profile, followers/following and profile editing
+- Search for users, hashtags and videos
+- Notifications
+- Reports and moderation endpoints
+- Persistent "Not interested" and "Don't show this author"
+- User blocking and user reports
+- Automatic database/storage initialization
+- `.env.example` included and verified
+- Automatic migration for recommendation/blocking/preference tables
+- Friendly JSON error responses instead of raw FastAPI 500 pages
 
-## Railway variables
+## Environment
+
+Use `.env.example` as the template for local configuration. Never commit real secrets.
+
+Required Railway variables:
+
 - `BOT_TOKEN`
 - `DATABASE_URL`
 - `WEB_APP_URL`
@@ -50,32 +43,6 @@ The production Mini App is served from `dist/index.html`.
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `ADMIN_TELEGRAM_IDS`
 
-`.env.example` is optional for GitHub and is intentionally not required for production.
+## Important
 
-
-## v10 focus
-- Deterministic mobile video gestures: tap pause/play, double-tap like.
-- High-contrast bottom navigation.
-- Profile/Saved tab navigation and nested social navigation.
-- Watch history remains removed.
-
-- В v10 добавлены ответы на комментарии, атомарный лайк и уведомления о лайках/ответах.
-
-
-## QA performed for v12
-- Python syntax compilation checked locally.
-- Inline JavaScript syntax checked locally with Node.js.
-- Verified the bottom navigation markup and delegated handlers are removed and top-bar action handlers remain wired.
-- Verified initData rejects duplicate parameters, missing/invalid/future/expired auth_date values and invalid user IDs.
-- Real Telegram/Railway/Supabase runtime tests were not performed; deploy and verify against connected services before announcing production readiness.
-## Проверка версии после обновления (v20.0.0)
-
-После Commit changes и успешного Railway deployment откройте в браузере:
-`https://telegram-shorts-production.up.railway.app/health/build`
-
-Ответ должен содержать `"build": "v20.0.0"` и `"index_exists": true`. Если номер другой, новая версия ещё не обслуживается активным Railway deployment: проверьте service, branch и последний deployment. `dist/index.html` — рабочий фронтенд; `src/main.jsx` и `src/style.css` не собираются текущим `package.json` и не заменяют `dist/index.html`.
-
-
-
-## v21 viewport diagnostic
-Build marker: `v21.0.0`. After deployment, verify `GET /health/build` reports this version and `index_exists: true`. Main feed sizing is applied in JavaScript and CSS using the measured WebView viewport.
+Do not replace `dist/index.html` with a separate React/Vite build. The current production UI is the tested static Mini App shipped with this archive.

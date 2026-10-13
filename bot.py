@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import time
 import re
+import traceback
 from pathlib import Path
 from urllib.parse import parse_qsl, quote
 
@@ -39,13 +40,6 @@ if not SUPABASE_SERVICE_ROLE_KEY:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 app = FastAPI()
-
-@app.exception_handler(Exception)
-async def temporary_server_error_handler(request: Request, exc: Exception):
-    # Keep production UI responsive without exposing database/internal details to users.
-    print(f"Unhandled server error on {request.method} {request.url.path}: {exc}")
-    return JSONResponse(status_code=500, content={"ok": False, "detail": "Временная ошибка сервера. Попробуйте ещё раз."})
-
 db_pool = None
 
 
@@ -112,22 +106,22 @@ async def init_db():
             primary key (video_id, user_id)
         );
 
+        create table if not exists video_watch_history (
+            user_id bigint not null references users(id) on delete cascade,
+            video_id bigint not null references videos(id) on delete cascade,
+            watched_seconds numeric(10,2) not null default 0,
+            completed boolean not null default false,
+            last_watched_at timestamptz not null default now(),
+            primary key (user_id, video_id)
+        );
+
         create table if not exists comments (
             id bigint generated always as identity primary key,
             video_id bigint not null references videos(id) on delete cascade,
             user_id bigint not null references users(id) on delete cascade,
             text text not null,
-            parent_id bigint references comments(id) on delete cascade,
             created_at timestamptz not null default now()
         );
-
-        create table if not exists comment_likes (
-            comment_id bigint not null references comments(id) on delete cascade,
-            user_id bigint not null references users(id) on delete cascade,
-            created_at timestamptz not null default now(),
-            primary key (comment_id,user_id)
-        );
-        create index if not exists idx_comment_likes_comment_id on comment_likes(comment_id);
 
         create table if not exists follows (
             follower_id bigint not null references users(id) on delete cascade,
@@ -141,42 +135,7 @@ async def init_db():
         alter table videos add column if not exists is_deleted boolean not null default false;
         alter table videos add column if not exists deleted_at timestamptz;
         alter table videos add column if not exists hashtags text[] not null default '{}';
-        alter table comments add column if not exists parent_id bigint references comments(id) on delete cascade;
         create index if not exists idx_videos_hashtags on videos using gin (hashtags);
-        create table if not exists video_preferences (
-            user_id bigint not null references users(id) on delete cascade,
-            video_id bigint not null references videos(id) on delete cascade,
-            kind text not null,
-            created_at timestamptz not null default now(),
-            primary key (user_id, video_id, kind)
-        );
-
-        create table if not exists hidden_authors (
-            user_id bigint not null references users(id) on delete cascade,
-            author_id bigint not null references users(id) on delete cascade,
-            created_at timestamptz not null default now(),
-            primary key (user_id, author_id),
-            check (user_id <> author_id)
-        );
-
-        create table if not exists user_blocks (
-            blocker_id bigint not null references users(id) on delete cascade,
-            blocked_id bigint not null references users(id) on delete cascade,
-            created_at timestamptz not null default now(),
-            primary key (blocker_id, blocked_id),
-            check (blocker_id <> blocked_id)
-        );
-
-        create table if not exists user_reports (
-            id bigint generated always as identity primary key,
-            reporter_id bigint not null references users(id) on delete cascade,
-            reported_user_id bigint not null references users(id) on delete cascade,
-            reason text not null,
-            details text,
-            status text not null default 'open',
-            created_at timestamptz not null default now()
-        );
-
         create table if not exists reports (
             id bigint generated always as identity primary key,
             reporter_id bigint not null references users(id) on delete cascade,
@@ -189,6 +148,37 @@ async def init_db():
             resolved_by bigint references users(id) on delete set null,
             unique (reporter_id, video_id)
         );
+
+        create table if not exists video_preferences (
+            user_id bigint not null references users(id) on delete cascade,
+            video_id bigint not null references videos(id) on delete cascade,
+            kind text not null,
+            created_at timestamptz not null default now(),
+            primary key (user_id, video_id, kind)
+        );
+        create table if not exists hidden_authors (
+            user_id bigint not null references users(id) on delete cascade,
+            author_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (user_id, author_id),
+            check (user_id <> author_id)
+        );
+        create table if not exists user_blocks (
+            blocker_id bigint not null references users(id) on delete cascade,
+            blocked_id bigint not null references users(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            primary key (blocker_id, blocked_id),
+            check (blocker_id <> blocked_id)
+        );
+        create table if not exists user_reports (
+            id bigint generated always as identity primary key,
+            reporter_id bigint not null references users(id) on delete cascade,
+            reported_user_id bigint not null references users(id) on delete cascade,
+            reason text not null,
+            details text,
+            status text not null default 'open',
+            created_at timestamptz not null default now()
+        );
         create index if not exists idx_videos_created_at on videos (created_at desc);
         create index if not exists idx_videos_user_id on videos (user_id);
         create index if not exists idx_video_views_video_id on video_views (video_id);
@@ -198,7 +188,6 @@ async def init_db():
         create unique index if not exists uq_video_views_user_video
             on video_views(video_id,user_id) where user_id is not null;
         create index if not exists idx_comments_video_id on comments (video_id);
-        create index if not exists idx_comments_video_parent on comments(video_id,parent_id,created_at desc);
         create index if not exists idx_video_saves_user_id on video_saves (user_id, created_at desc);
         create index if not exists idx_video_saves_video_id on video_saves (video_id);
         create table if not exists notifications (
@@ -212,6 +201,10 @@ async def init_db():
         );
 
         create index if not exists idx_follows_following_id on follows (following_id);
+        create index if not exists idx_video_preferences_user_id on video_preferences (user_id, created_at desc);
+        create index if not exists idx_hidden_authors_user_id on hidden_authors (user_id, created_at desc);
+        create index if not exists idx_user_blocks_blocker_id on user_blocks (blocker_id, created_at desc);
+        create index if not exists idx_user_reports_status_created_at on user_reports (status, created_at desc);
         create index if not exists idx_notifications_user_id on notifications (user_id, created_at desc);
         create index if not exists idx_reports_status_created_at on reports (status, created_at desc);
         """)
@@ -315,10 +308,7 @@ def validate_telegram_init_data(init_data: str):
     if not init_data:
         raise ValueError("Telegram initData отсутствует")
 
-    pairs = parse_qsl(init_data, keep_blank_values=True)
-    parsed = dict(pairs)
-    if len(parsed) != len(pairs):
-        raise ValueError("В initData обнаружены повторяющиеся параметры")
+    parsed = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = parsed.pop("hash", None)
     if not received_hash:
         raise ValueError("В initData отсутствует hash")
@@ -342,35 +332,18 @@ def validate_telegram_init_data(init_data: str):
     if not hmac.compare_digest(calculated_hash, received_hash):
         raise ValueError("Неверная подпись Telegram initData")
 
-    auth_date_raw = parsed.get("auth_date")
-    if not auth_date_raw:
-        raise ValueError("В initData отсутствует auth_date")
-    try:
-        auth_date = int(auth_date_raw)
-    except (TypeError, ValueError) as error:
-        raise ValueError("Некорректный auth_date в initData") from error
-    now = int(time.time())
-    if auth_date > now + 60:
-        raise ValueError("Время initData находится в будущем")
-    if now - auth_date > 86400:
+    auth_date = int(parsed.get("auth_date", "0"))
+    if auth_date and time.time() - auth_date > 86400:
         raise ValueError("Telegram initData устарел")
 
     user_json = parsed.get("user")
     if not user_json:
         raise ValueError("Данные пользователя отсутствуют")
-    try:
-        user_data = json.loads(user_json)
-    except (TypeError, json.JSONDecodeError) as error:
-        raise ValueError("Некорректные данные пользователя в initData") from error
-    if not isinstance(user_data, dict) or "id" not in user_data:
+
+    user_data = json.loads(user_json)
+    if "id" not in user_data:
         raise ValueError("Telegram user id отсутствует")
-    try:
-        user_id = int(user_data["id"])
-    except (TypeError, ValueError) as error:
-        raise ValueError("Некорректный Telegram user id") from error
-    if user_id <= 0:
-        raise ValueError("Некорректный Telegram user id")
-    user_data["id"] = user_id
+
     return user_data
 
 
@@ -499,18 +472,8 @@ async def get_me(request: Request):
             """,
             int(user["id"]),
         )
-        videos = await connection.fetch(
-            """select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
-                      coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url,
-                      exists(select 1 from video_likes l where l.video_id=v.id and l.user_id=$1) as liked,
-                      exists(select 1 from video_saves s where s.video_id=v.id and s.user_id=$1) as saved,
-                      (select count(*) from video_saves s where s.video_id=v.id) as saves_count
-               from videos v join users u on u.id=v.user_id
-               where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60""",
-            int(user["id"]),
-        )
 
-    return {"ok": True, "user": dict(row) if row else None, "videos": [dict(v) for v in videos], "is_admin": int(user["id"]) in ADMIN_TELEGRAM_IDS}
+    return {"ok": True, "user": dict(row) if row else None, "is_admin": int(user["id"]) in ADMIN_TELEGRAM_IDS}
 
 
 @app.get("/api/feed")
@@ -541,16 +504,10 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
                 + coalesce((
                     select sum(interest.weight)
                     from (
-                        select unnest(iv.hashtags) as tag, count(*)::float * 0.18 as weight
-                        from video_likes vl
-                        join videos iv on iv.id=vl.video_id
-                        where vl.user_id=$1
-                        group by 1
-                        union all
-                        select unnest(iv.hashtags) as tag, count(*)::float * 0.24 as weight
-                        from video_saves vs
-                        join videos iv on iv.id=vs.video_id
-                        where vs.user_id=$1
+                        select unnest(iv.hashtags) as tag, count(*)::float * 0.22 as weight
+                        from video_watch_history wh
+                        join videos iv on iv.id=wh.video_id
+                        where wh.user_id=$1 and wh.last_watched_at > now() - interval '30 days'
                         group by 1
                     ) interest
                     where interest.tag = any(v.hashtags)
@@ -563,7 +520,6 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
             select
                 v.id, v.user_id, v.video_url, v.caption,
                 v.views_count, v.likes_count, v.comments_count, v.hashtags, v.created_at,
-                (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
                 coalesce(u.custom_username,u.username) as username, u.first_name, u.last_name, u.avatar_url,
                 exists(
                     select 1 from video_likes vl
@@ -572,7 +528,8 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
                 exists(
                     select 1 from video_saves vs
                     where vs.video_id=v.id and vs.user_id=$1
-                ) as saved
+                ) as saved,
+                (select count(*) from video_saves vsc where vsc.video_id=v.id) as saves_count
 ,
                 exists(
                     select 1 from follows ff2
@@ -612,24 +569,6 @@ def extract_hashtags(text: str):
     return tags
 
 
-@app.get("/api/share-link/{video_id}")
-async def share_link(video_id: int, request: Request):
-    # Only share videos that are available to the current authenticated viewer.
-    await get_authenticated_user(request)
-    pool = await get_db_pool()
-    async with pool.acquire() as connection:
-        exists = await connection.fetchval("select exists(select 1 from videos where id=$1 and not is_deleted)", video_id)
-    if not exists:
-        raise HTTPException(status_code=404, detail="Видео недоступно")
-    try:
-        bot_info = await bot.get_me()
-    except Exception:
-        raise HTTPException(status_code=503, detail="Не удалось получить ссылку Telegram Mini App")
-    if not bot_info.username:
-        raise HTTPException(status_code=503, detail="У бота не настроено имя пользователя")
-    # Requires the bot's Main Mini App to be configured in BotFather.
-    return {"ok": True, "url": f"https://t.me/{bot_info.username}?startapp=video_{video_id}"}
-
 @app.get("/api/videos/{video_id}")
 async def get_video(video_id: int, request: Request):
     user = await get_authenticated_user(request)
@@ -637,11 +576,11 @@ async def get_video(video_id: int, request: Request):
     uid = int(user["id"])
     async with pool.acquire() as connection:
         row = await connection.fetchrow("""
-            select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
-                   (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
+            select v.id,v.user_id,v.video_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
                    exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
                    exists(select 1 from video_saves vs where vs.video_id=v.id and vs.user_id=$1) as saved,
+                   (select count(*) from video_saves vsc where vsc.video_id=v.id) as saves_count,
                    exists(select 1 from follows f where f.follower_id=$1 and f.following_id=v.user_id) as following
             from videos v join users u on u.id=v.user_id
             where v.id=$2 and not v.is_deleted
@@ -835,9 +774,57 @@ async def add_view(video_id: int, request: Request):
             )
         else:
             row = await connection.fetchrow("select views_count from videos where id=$1", video_id)
-
+        await connection.execute(
+            """insert into video_watch_history(user_id,video_id,watched_seconds,completed,last_watched_at)
+               values($1,$2,0,false,now())
+               on conflict(user_id,video_id) do update set last_watched_at=now()""",
+            user_id, video_id,
+        )
 
     return {"ok": True, "views_count": int(row["views_count"])}
+
+
+@app.post("/api/videos/{video_id}/watch")
+async def update_watch_history(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    body = await request.json()
+    watched_seconds = max(0.0, min(float(body.get("watched_seconds", 0) or 0), 3600.0))
+    completed = bool(body.get("completed", False))
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
+        if not exists:
+            raise HTTPException(status_code=404, detail="Видео не найдено")
+        await connection.execute(
+            """insert into video_watch_history(user_id,video_id,watched_seconds,completed,last_watched_at)
+               values($1,$2,$3,$4,now())
+               on conflict(user_id,video_id) do update set
+                 watched_seconds=greatest(video_watch_history.watched_seconds, excluded.watched_seconds),
+                 completed=video_watch_history.completed or excluded.completed,
+                 last_watched_at=now()""",
+            int(user["id"]), video_id, watched_seconds, completed,
+        )
+    return {"ok": True}
+
+
+@app.get("/api/history")
+async def get_history(request: Request, offset: int = 0, limit: int = 60):
+    user = await get_authenticated_user(request)
+    offset=max(0,min(int(offset),5000)); limit=max(1,min(int(limit),60))
+    pool=await get_db_pool()
+    async with pool.acquire() as connection:
+        rows=await connection.fetch(
+            """select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,
+                      v.created_at, wh.watched_seconds, wh.completed, wh.last_watched_at,
+                      u.username,u.first_name,u.last_name,u.avatar_url
+               from video_watch_history wh
+               join videos v on v.id=wh.video_id
+               join users u on u.id=v.user_id
+               where wh.user_id=$1 and not v.is_deleted
+               order by wh.last_watched_at desc limit $2 offset $3""",
+            int(user["id"]),limit,offset
+        )
+    return {"ok":True,"videos":[dict(x) for x in rows],"offset":offset,"limit":limit}
 
 
 @app.post("/api/videos/{video_id}/like")
@@ -847,33 +834,55 @@ async def toggle_like(video_id: int, request: Request):
     pool = await get_db_pool()
 
     async with pool.acquire() as connection:
-        async with connection.transaction():
-            video = await connection.fetchrow(
-                "select id,user_id from videos where id=$1 and not is_deleted for update", video_id
+        existing = await connection.fetchval(
+            """
+            select 1 from video_likes
+            where video_id = $1 and user_id = $2
+            """,
+            video_id,
+            user_id,
+        )
+
+        if existing:
+            await connection.execute(
+                "delete from video_likes where video_id = $1 and user_id = $2",
+                video_id,
+                user_id,
             )
-            if not video:
-                raise HTTPException(status_code=404, detail="Видео не найдено")
-            existing = await connection.fetchval(
-                "select 1 from video_likes where video_id=$1 and user_id=$2", video_id, user_id
+            liked = False
+        else:
+            await connection.execute(
+                """
+                insert into video_likes (video_id, user_id)
+                values ($1, $2)
+                on conflict do nothing
+                """,
+                video_id,
+                user_id,
             )
-            if existing:
-                await connection.execute("delete from video_likes where video_id=$1 and user_id=$2", video_id, user_id)
-                liked = False
-            else:
-                result = await connection.execute(
-                    "insert into video_likes(video_id,user_id) values($1,$2) on conflict do nothing", video_id, user_id
-                )
-                liked = result.endswith("1")
-                if liked and int(video["user_id"]) != user_id:
-                    await connection.execute(
-                        "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'like',$3)",
-                        int(video["user_id"]), user_id, video_id
-                    )
-            row = await connection.fetchrow(
-                "update videos set likes_count=(select count(*) from video_likes where video_id=$1) where id=$1 returning likes_count",
-                video_id
+            liked = True
+
+        row = await connection.fetchrow(
+            """
+            update videos
+            set likes_count = (
+                select count(*) from video_likes where video_id = $1
             )
-    return {"ok":True,"liked":liked,"likes_count":int(row["likes_count"])}
+            where id = $1
+            returning likes_count, user_id
+            """,
+            video_id,
+        )
+        if row and liked and int(row["user_id"]) != user_id:
+            await connection.execute(
+                "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'like',$3)",
+                int(row["user_id"]), user_id, video_id
+            )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+
+    return {"ok": True, "liked": liked, "likes_count": row["likes_count"]}
 
 
 @app.post("/api/videos/{video_id}/save")
@@ -882,8 +891,8 @@ async def toggle_save(video_id: int, request: Request):
     user_id = int(user["id"])
     pool = await get_db_pool()
     async with pool.acquire() as connection:
-        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
-        if not exists:
+        owner_id = await connection.fetchval("select user_id from videos where id=$1 and not is_deleted", video_id)
+        if owner_id is None:
             raise HTTPException(status_code=404, detail="Видео не найдено")
         saved = await connection.fetchval("select 1 from video_saves where video_id=$1 and user_id=$2", video_id, user_id)
         if saved:
@@ -892,7 +901,13 @@ async def toggle_save(video_id: int, request: Request):
         else:
             await connection.execute("insert into video_saves(video_id,user_id) values($1,$2) on conflict do nothing", video_id, user_id)
             is_saved = True
-    return {"ok": True, "saved": is_saved}
+        saves_count = await connection.fetchval("select count(*) from video_saves where video_id=$1", video_id)
+        if is_saved and int(owner_id) != user_id:
+            await connection.execute(
+                "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'save',$3)",
+                int(owner_id), user_id, video_id
+            )
+    return {"ok": True, "saved": is_saved, "saves_count": int(saves_count or 0)}
 
 @app.get("/api/saved")
 async def get_saved(request: Request, offset: int = 0, limit: int = 60):
@@ -902,9 +917,6 @@ async def get_saved(request: Request, offset: int = 0, limit: int = 60):
     async with pool.acquire() as connection:
         rows = await connection.fetch("""
             select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
-                   (select count(*) from video_saves vs_count where vs_count.video_id=v.id) as saves_count,
-                   exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
-                   exists(select 1 from follows f where f.follower_id=$1 and f.following_id=v.user_id) as following,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url, true as saved
             from video_saves s join videos v on v.id=s.video_id join users u on u.id=v.user_id
             where s.user_id=$1 and not v.is_deleted
@@ -933,34 +945,10 @@ async def get_following(user_id: int, request: Request, limit: int = 100):
 async def delete_comment(comment_id: int, request: Request):
     user=await get_authenticated_user(request); pool=await get_db_pool()
     async with pool.acquire() as connection:
-        async with connection.transaction():
-            row=await connection.fetchrow("select id,video_id from comments where id=$1 and user_id=$2 for update", comment_id, int(user["id"]))
-            if not row: raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
-            count=await connection.fetchval("""with recursive tree as (select id from comments where id=$1 union all select c.id from comments c join tree t on c.parent_id=t.id) select count(*) from tree""", comment_id)
-            await connection.execute("delete from comments where id=$1", comment_id)
-            await connection.execute("update videos set comments_count=(select count(*) from comments where video_id=$1) where id=$1", row["video_id"])
-            remaining = await connection.fetchval("select comments_count from videos where id=$1", row["video_id"])
-    return {"ok":True,"deleted":True,"deleted_count":int(count or 1),"video_id":int(row["video_id"]),"comments_count":int(remaining or 0)}
-
-@app.post("/api/comments/{comment_id}/like")
-async def toggle_comment_like(comment_id: int, request: Request):
-    user = await get_authenticated_user(request)
-    uid = int(user["id"])
-    pool = await get_db_pool()
-    async with pool.acquire() as connection:
-        async with connection.transaction():
-            exists = await connection.fetchval("select 1 from comments where id=$1 for update", comment_id)
-            if not exists:
-                raise HTTPException(status_code=404, detail="Комментарий не найден")
-            liked = await connection.fetchval("select 1 from comment_likes where comment_id=$1 and user_id=$2", comment_id, uid)
-            if liked:
-                await connection.execute("delete from comment_likes where comment_id=$1 and user_id=$2", comment_id, uid)
-                now_liked = False
-            else:
-                await connection.execute("insert into comment_likes(comment_id,user_id) values($1,$2) on conflict do nothing", comment_id, uid)
-                now_liked = True
-            count = await connection.fetchval("select count(*) from comment_likes where comment_id=$1", comment_id)
-    return {"ok": True, "liked": now_liked, "likes_count": int(count or 0)}
+        row=await connection.fetchrow("delete from comments where id=$1 and user_id=$2 returning video_id", comment_id, int(user["id"]))
+        if not row: raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
+        await connection.execute("update videos set comments_count=greatest(comments_count-1,0) where id=$1", row["video_id"])
+    return {"ok":True,"deleted":True}
 
 @app.get("/api/notifications/unread-count")
 async def unread_notifications(request: Request):
@@ -981,12 +969,7 @@ async def get_profile(user_id: int, request: Request):
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
           from users u where u.id=$2""", int(viewer["id"]), user_id)
-        videos = await connection.fetch("""select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
-          coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url,
-          exists(select 1 from video_likes l where l.video_id=v.id and l.user_id=$2) as liked,
-          exists(select 1 from video_saves s where s.video_id=v.id and s.user_id=$2) as saved,
-          (select count(*) from video_saves s where s.video_id=v.id) as saves_count
-          from videos v join users u on u.id=v.user_id where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60""", user_id, int(viewer["id"]))
+        videos = await connection.fetch("select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,(select count(*) from video_saves s where s.video_id=v.id) as saves_count,v.created_at from videos v where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60", user_id)
     if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
     return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
 
@@ -994,7 +977,7 @@ async def get_profile(user_id: int, request: Request):
 async def search(q: str = "", request: Request = None):
     if request is None:
         raise HTTPException(status_code=400, detail="Запрос не указан")
-    viewer = await get_authenticated_user(request)
+    await get_authenticated_user(request)
     query = q.strip()[:80]
     if not query:
         return {"ok": True, "users": [], "videos": [], "hashtags": []}
@@ -1013,17 +996,13 @@ async def search(q: str = "", request: Request = None):
             pattern,
         )
         videos = await connection.fetch(
-            """select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
-                (select count(*) from video_saves s where s.video_id=v.id) as saves_count,
-                exists(select 1 from video_likes l where l.video_id=v.id and l.user_id=$3) as liked,
-                exists(select 1 from video_saves s where s.video_id=v.id and s.user_id=$3) as saved,
-                exists(select 1 from follows f where f.follower_id=$3 and f.following_id=v.user_id) as following,
-                coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url
+            """select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,
+                u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url
                from videos v join users u on u.id=v.user_id
                where not v.is_deleted
                  and (coalesce(v.caption,'') ilike $1 or coalesce(u.custom_username,u.username,'') ilike $1 or $2 = any(v.hashtags))
                order by v.created_at desc limit 20""",
-            pattern, raw, int(viewer["id"]),
+            pattern, raw,
         )
         hashtag_rows = await connection.fetch(
             """select tag, count(*) as videos_count
@@ -1085,38 +1064,25 @@ async def update_me(request: Request):
 
 @app.get("/api/videos/{video_id}/comments")
 async def get_comments(video_id:int, request:Request):
-    viewer = await get_authenticated_user(request); p=await get_db_pool()
+    await get_authenticated_user(request); p=await get_db_pool()
     async with p.acquire() as c:
-        rows=await c.fetch("""select c.id,c.parent_id,c.text,c.created_at,u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url,
-          (select count(*) from comment_likes cl where cl.comment_id=c.id) as likes_count,
-          exists(select 1 from comment_likes cl where cl.comment_id=c.id and cl.user_id=$2) as liked
-          from comments c join users u on u.id=c.user_id where c.video_id=$1 and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted) order by c.created_at asc limit 200""",video_id,int(viewer["id"]))
+        rows=await c.fetch("""select c.id,c.text,c.created_at,u.id as user_id,u.username,u.first_name,u.avatar_url from comments c join users u on u.id=c.user_id where c.video_id=$1 and not exists (select 1 from videos v where v.id=c.video_id and v.is_deleted) order by c.created_at desc limit 100""",video_id)
     return {"ok":True,"comments":[dict(x) for x in rows]}
 
 @app.post("/api/videos/{video_id}/comments")
 async def add_comment(video_id:int, request:Request):
-    user=await get_authenticated_user(request); body=await request.json(); text=str(body.get("text","")).strip()[:500]; parent_id=body.get("parent_id")
+    user=await get_authenticated_user(request); text=str((await request.json()).get("text","")).strip()[:500]
     if not text: raise HTTPException(status_code=400,detail="Комментарий не может быть пустым")
-    try: parent_id=int(parent_id) if parent_id not in (None,'',0) else None
-    except (TypeError,ValueError): parent_id=None
     p=await get_db_pool()
     async with p.acquire() as c:
         owner=await c.fetchval("select user_id from videos where id=$1 and not is_deleted",video_id)
         if owner is None: raise HTTPException(status_code=404,detail="Видео не найдено")
         blocked=await c.fetchval("select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)",int(user["id"]),int(owner))
         if blocked: raise HTTPException(status_code=403,detail="Взаимодействие с этим пользователем недоступно")
-        parent_owner=None
-        if parent_id is not None:
-            parent_owner=await c.fetchval("select user_id from comments where id=$1 and video_id=$2",parent_id,video_id)
-            if parent_owner is None: raise HTTPException(status_code=400,detail="Комментарий для ответа не найден")
-        row=await c.fetchrow("insert into comments(video_id,user_id,text,parent_id) values($1,$2,$3,$4) returning id,parent_id,text,created_at",video_id,int(user["id"]),text,parent_id)
+        row=await c.fetchrow("insert into comments(video_id,user_id,text) values($1,$2,$3) returning id,text,created_at",video_id,int(user["id"]),text)
         await c.execute("update videos set comments_count=comments_count+1 where id=$1",video_id)
-        comments_count = await c.fetchval("select comments_count from videos where id=$1", video_id)
-        if parent_owner is not None and int(parent_owner)!=int(user["id"]):
-            await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'reply',$3)",int(parent_owner),int(user["id"]),video_id)
-        elif int(owner)!=int(user["id"]):
-            await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
-    return {"ok":True,"comment":dict(row),"comments_count":int(comments_count or 0)}
+        if int(owner)!=int(user["id"]): await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
+    return {"ok":True,"comment":dict(row)}
 
 @app.post("/api/users/{user_id}/follow")
 async def toggle_follow(user_id:int, request:Request):
@@ -1194,6 +1160,13 @@ async def admin_resolve_report(report_id: int, request: Request):
     return {"ok": True, "resolved": True}
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    print(f"Unhandled server error on {request.method} {request.url.path}: {exc}")
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"ok": False, "detail": "Временная ошибка сервера. Попробуйте ещё раз."})
+
+
 @app.get("/health/db")
 async def db_health_check():
     try:
@@ -1206,7 +1179,7 @@ async def db_health_check():
         return JSONResponse(status_code=503, content={"status":"error","database":False})
 
 
-DIST_DIR = Path(__file__).resolve().parent / "dist"
+DIST_DIR = Path("dist")
 if (DIST_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
 
@@ -1220,21 +1193,9 @@ async def home():
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
-                "X-Telegram-Shorts-Build": "v22.0.0",
             },
         )
     return JSONResponse({"status": "ok", "service": "Telegram Shorts"})
-
-
-@app.get("/health/build")
-async def build_health_check():
-    index_file = DIST_DIR / "index.html"
-    return {
-        "service": "Telegram Shorts",
-        "build": "v22.0.0",
-        "index_exists": index_file.is_file(),
-        "index_bytes": index_file.stat().st_size if index_file.is_file() else 0,
-    }
 
 
 @app.get("/favicon.ico")
