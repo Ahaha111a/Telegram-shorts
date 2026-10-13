@@ -1,3 +1,10 @@
+# Telegram Shorts — v22.0.0
+
+**Production Mini App:** `dist/index.html`  
+**Railway start command:** `python bot.py`
+
+v22 applies a final full-bleed layout to the main feed, removes any feed scrim/pseudo-elements, and reframes main-feed video upward to hide a bottom fade if it is baked into the media. Profile viewer framing and backend logic are preserved. See `docs/quality/BOTTOM_SCRIM_FIX_V22.md`.
+
 # Telegram Shorts — Stable Social v12
 
 Production Telegram Mini App + bot for a TikTok/Reels-style vertical short-video feed.

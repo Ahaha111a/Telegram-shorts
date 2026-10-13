@@ -1,8 +1,8 @@
 {
   "name": "telegram-shorts",
   "private": true,
-  "version": "21.0.0",
-  "description": "Telegram Shorts production Mini App frontend",
+  "version": "22.0.0",
+  "description": "Telegram Shorts production Mini App frontend — v22 full-bleed feed",
   "scripts": {
     "dev": "python -m http.server 4173 -d dist",
     "build": "python -c \"print('Production build is already in dist/index.html')\""

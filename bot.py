@@ -1220,7 +1220,7 @@ async def home():
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
-                "X-Telegram-Shorts-Build": "v21.0.0",
+                "X-Telegram-Shorts-Build": "v22.0.0",
             },
         )
     return JSONResponse({"status": "ok", "service": "Telegram Shorts"})
@@ -1231,7 +1231,7 @@ async def build_health_check():
     index_file = DIST_DIR / "index.html"
     return {
         "service": "Telegram Shorts",
-        "build": "v21.0.0",
+        "build": "v22.0.0",
         "index_exists": index_file.is_file(),
         "index_bytes": index_file.stat().st_size if index_file.is_file() else 0,
     }
