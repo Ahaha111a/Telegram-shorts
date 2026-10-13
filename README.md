@@ -68,3 +68,7 @@ The production Mini App is served from `dist/index.html`.
 
 Ответ должен содержать `"build": "v20.0.0"` и `"index_exists": true`. Если номер другой, новая версия ещё не обслуживается активным Railway deployment: проверьте service, branch и последний deployment. `dist/index.html` — рабочий фронтенд; `src/main.jsx` и `src/style.css` не собираются текущим `package.json` и не заменяют `dist/index.html`.
 
+
+
+## v21 viewport diagnostic
+Build marker: `v21.0.0`. After deployment, verify `GET /health/build` reports this version and `index_exists: true`. Main feed sizing is applied in JavaScript and CSS using the measured WebView viewport.
