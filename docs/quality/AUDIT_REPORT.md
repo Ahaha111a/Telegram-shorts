@@ -1,45 +1,46 @@
-# Technical audit — 2026-10-16
+# Технический аудит Telegram Shorts
 
-## Source verification
-The supplied ZIP has 12 archive entries and passed `ZipFile.testzip()`. Its Git blob SHA matched the GitHub `main` content for `dist/index.html`, `bot.py`, `README.md`, `package.json`, `requirements.txt`, and `database/schema.sql`. This confirms these files were in sync at audit time; GitHub writes/deployment were not performed. The ZIP initially lacked `docs/quality` and `.env.example`.
+Дата проверки исходного ZIP: 2026-10-16. Источник кода для этой ревизии — прикреплённый `Telegram-shorts-main(1).zip`.
 
-## Confirmed findings
-- P1 UI: `.shade` applied a black gradient down to `#000d` at the bottom of every feed slide. `.vignette` added `inset 0 0 120px #0008`. The bottom navigation added a gradient and `box-shadow` above the panel. These are direct code causes for visible lower darkening.
-- P1 sharing: `shareCurrent` used `location.origin+'/?video='+v.id`, a normal web URL, not a Telegram Mini App deep link. New backend route returns `https://t.me/<bot>?startapp=video_<id>`; this depends on BotFather configuration and must be tested in Telegram. Frontend reads the Telegram `start_param` payload `video_ID` and attempts to fetch/open that video in the vertical viewer. This still depends on Main Mini App configuration and requires real Telegram testing.
-- P1 gestures: feed attached both `dblclick` and touch `pointerup` handlers, potentially issuing two toggles for one double tap. Current patch suppresses synthetic dblclick action, delays single-tap playback to distinguish it from a double tap, and adds the same double-tap like behavior to the saved/profile/search viewer. Real-device test remains required.
-- P1 swipe: saved viewer used viewport-sized items inside a panel whose CSS height could be only 90dvh; offsets used `window.innerHeight`. The viewer panel/items were aligned to full viewport height to prevent snap geometry mismatch.
-- P1 thumbnails: DB schema contains `thumbnail_url`, but frontend had no `thumbnail_url` usage or `poster` attribute. SQL projections and frontend rendering now carry/use the field. The upload path does not yet demonstrate automatic thumbnail generation; legacy videos may remain without poster.
-- P1 release confidence: `package.json` build script only prints a message and is not a real frontend build. Static checks do not validate production integrations.
-- P2 architecture: production frontend is a large single HTML file; `src/main.jsx` and `src/style.css` are minimal placeholders. This increases regression risk and makes duplicate CSS overrides harder to track. Do not migrate framework during this critical-fix pass.
-- P2 product: backend/schema include watch-history endpoints/tables although the product requirement says no history UI. Keep existing DB schema for compatibility, but remove/disable UI entry points and do not delete stored data without approval.
-- P2 API coverage: routes exist for feed, profile, search, notifications, likes, saves, comments, follows, reports, upload and deletion. Presence of a route is not proof of end-to-end correctness.
+## Важное ограничение версии
 
-## Function status (static inspection only)
-| Function | Status | Evidence/next validation |
-|---|---|---|
-| Telegram auth | Implemented; requires tests | Test valid, expired, malformed initData |
-| Feed / Following | Implemented; needs runtime tests | race conditions, empty/error states |
-| Video playback | Implemented; needs device test | autoplay, lifecycle, memory/network |
-| Like button / double tap | Known risk patched; needs Android test | exactly one request, state/count sync |
-| Comments | Route/UI present; needs runtime test | create, load, delete, error states |
-| Profiles | Route/UI present; partial | thumbnails depend on DB values |
-| Follow/unfollow | Route/UI present; needs runtime test | persistence and counts |
-| Upload/delete | Route/UI present; needs integration test | storage cleanup, limits, ownership |
-| Search | Route/UI present; needs runtime test | users/videos/hashtags and empty state |
-| Notifications | Route/UI present; needs runtime test | unread count/read persistence |
-| Saved videos | Route/UI present; viewer snap patched | real swipe and actions on device |
-| Reports/moderation | Route/UI present; needs runtime test | reason validation and admin permissions |
-| Share Mini App link | Changed; partial | Main Mini App setup and start-param routing need verification |
-| Video poster | Code now passes field; partial | thumbnail generation/storage not confirmed |
-| History UI | Requirement says absent; legacy backend exists | verify no UI entry point after full review |
+Содержимое ZIP не совпало с текущими файлами ветки GitHub `main` при сравнении blob SHA основных файлов. Поэтому изменения в этой ревизии применены к прикреплённому ZIP, а не напрямую к GitHub. Перед загрузкой следует проверить diff с актуальным `main` и не перезаписывать более новые изменения вслепую.
 
-## Not performed
-No live Android/Telegram WebView test, Railway deployment/log inspection, Supabase live DB/Storage test, security penetration test, load test or real video upload was performed.
+## Подтверждённые проблемы исходного ZIP
 
-## Recommended order
-1. Verify v15 code in Telegram Android: bottom darkening, one-swipe behavior, double tap and deep link.
-2. Implement and test `start_param` handling to open `video_ID` directly in the Mini App.
-3. Generate thumbnails on upload (server-side ffmpeg or trusted thumbnail service; assess Railway availability/cost first).
-4. Add API integration tests for auth, ownership, idempotency and storage cleanup.
-5. Add frontend automated tests and break up the single HTML only after the core stabilizes.
-6. Remove all history UI references while preserving schema until migration approved.
+| Приоритет | Проблема | Первопричина / доказательство | Изменение |
+|---|---|---|---|
+| P1 | Нижняя область видео затемнена | `.shade` имел `#000d` в нижнем стопе; `.vignette` добавлял `inset`-тень; `.bottom` имел градиент и большую внешнюю тень | Удалён сильный нижний стоп и виньетка; нижняя панель получила ровный фон и `box-shadow:none` |
+| P1 | Двойной тап конфликтовал с паузой | `click`, `dblclick` и `pointerup` независимо обрабатывали один физический жест | Одиночное действие отложено; двойной тап распознаётся один раз; интерактивные кнопки имеют отдельные обработчики |
+| P1 | Повторные запросы лайка могли переключить состояние дважды | API был toggle-only; два запроса подряд не были идемпотентными | Добавлен необязательный `liked` desired-state, транзакция и блокировка строки видео; старые клиенты без JSON сохраняют toggle-поведение |
+| P1 | Счётчик комментариев мог расходиться с таблицей | Отдельные операции INSERT/DELETE и инкремент/декремент без транзакции | Добавление/удаление и пересчёт количества выполняются в транзакции |
+| P1 | Удаление комментария не требовало подтверждения | UI сразу отправлял DELETE | Добавлен единый пользовательский диалог подтверждения |
+| P1 | Удаление видео использовало браузерный `confirm()` | Два сценария удаления использовали нативный диалог | Заменено на единый мобильный диалог с отменой и блокировкой повторного действия |
+| P2 | Ссылки «Поделиться» открывали сайт, а не Mini App | Frontend создавал `location.origin/?video=...`, не используя endpoint Telegram deep link | Frontend использует `/api/videos/{id}/share-link`; стартовый `start_param=video_ID` открывает видео в просмотрщике |
+| P2 | Профиль не использовал обложку видео | В grid `<video>` отсутствовал `poster` | Добавлен `poster=thumbnail_url`, `preload="none"`; отсутствие самой миниатюры в данных всё ещё требует обработки |
+| P2 | Счётчики профиля были гибкими элементами без единой сетки | `.stats` использовал flex, карточки могли сжиматься при длинных значениях | CSS Grid с равными колонками, tabular numbers и переносом длинного содержимого |
+| P2 | Основные разделы открывались как нижние панели | Общий `.panel` использовал `translateY(105%)` | Профиль, поиск, уведомления, сохранённые и списки людей получают полноэкранный режим; панели действий остаются модальными |
+| P2 | История просмотров оставалась в UI вопреки принятому продуктовому решению | Существовали вкладки, панель и обработчик истории | История убрана из интерфейса; backend/schema оставлены для совместимости и без миграции данных |
+
+## Архитектура, установленная по коду
+
+- Backend: FastAPI в `bot.py`, запускаемый вместе с Telegram bot на aiogram.
+- Frontend: монолитный HTML/CSS/JavaScript в `dist/index.html`; `src/main.jsx` не является production-точкой входа по текущей структуре.
+- БД: PostgreSQL через `asyncpg`; схема в `database/schema.sql`, часть схемы также инициализируется в `bot.py`.
+- Медиа: Supabase Storage.
+- Авторизация: проверка Telegram WebApp initData на backend; frontend передаёт `X-Telegram-Init-Data`.
+- Развёртывание: Railway, переменные окружения; реальные production-интеграции в этой проверке не запускались.
+
+## Проверки
+
+Автоматические статические регрессионные тесты расположены в `tests/test_quality_regressions.py`. Они проверяют наличие критических контрактов и первопричин, но не заменяют браузерный E2E, реальную БД, Telegram Android WebView и нагрузочные тесты.
+
+## Остаточные риски
+
+1. ZIP отличается от GitHub `main`; нужен ручной review/diff перед commit.
+2. Нужен реальный тест share deep link после настройки Main Mini App в BotFather.
+3. Обложки не генерируются автоматически; `poster` работает только если `thumbnail_url` уже заполнен.
+4. Схема комментариев не поддерживает ответы на комментарии — в таблице нет `parent_id`; это требует отдельной совместимой миграции и UI/API.
+5. Нужны интеграционные проверки на реальной Supabase/PostgreSQL: блокировки, транзакции, триггеры/ограничения и конкурирующие действия.
+6. Нужны Android Telegram проверки safe areas, жестов, клавиатуры, производительности и поведения при сворачивании.
+7. Нельзя считать всё приложение production-ready только на основании статических проверок.

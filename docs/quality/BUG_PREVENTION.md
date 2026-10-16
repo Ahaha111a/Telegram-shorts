@@ -1,16 +1,14 @@
-# Bug prevention
+# Bug prevention rules
 
-## Known/recurrent classes
-- **Bottom darkening:** feed `.shade` had a bottom gradient ending in `#000d`; `.vignette` added inset black shadow; bottom nav had its own gradient and upward shadow. Audit all three layers together. Device screenshot is required to confirm final appearance.
-- **Duplicate gesture events:** touch `pointerup` and synthetic `dblclick` can both toggle a server-side like. Ensure one gesture causes one request; test real Android WebView.
-- **Scroll snap geometry:** cards using `100dvh` inside a shorter panel cause scroll offset mismatch and multi-item/partial swipes. Card height must match actual scroll viewport.
-- **Missing previews:** database has `thumbnail_url`, but frontend previously did not select/use it. Every SQL projection and render surface must carry it. Older rows can still lack thumbnail.
-- **False “fixed” reports:** code changes are not visual proof. Record the test method and its limitations.
-- **Archive/repository drift:** compare Git blob SHA for all authoritative files before editing. Do not use older generated ZIP as source when a newer user ZIP is provided.
-
-## Mandatory prevention
-- Search all definitions and duplicate CSS overrides before changing styles.
-- Trace an action from gesture → handler → API → DB mutation → response → every visible button/count.
-- Avoid blind toggle API retries: a retry can reverse the intended state.
-- Run regression checks on every related viewer, not just the feed.
-- Keep exact test evidence and unresolved risks in `CHANGELOG.md`/audit report.
+- Never modify a single gradient without searching all overlays, pseudo-elements, fixed panels, shadows, and safe-area layers that affect the same region.
+- For gestures, define one owner per gesture. Do not independently toggle the same state from `click`, `dblclick`, `pointerup`, and touch handlers. Delay single-tap actions until the double-tap window closes.
+- Use explicit desired-state API requests for rapidly repeated mutations where possible. Keep legacy toggle behavior only for backwards compatibility and serialize UI requests.
+- Counters must be derived from authoritative rows inside a transaction; never trust client-submitted totals.
+- Destructive operations must use the shared confirmation UI, disable repeat submission, enforce ownership on the backend, and report failure without removing data from the UI.
+- Escape user-controlled text before inserting it into HTML. Validate authorization on every backend operation; never rely on UI visibility as access control.
+- Video thumbnails require a real `thumbnail_url`; do not claim a poster exists when the source data is empty.
+- Share links must use Telegram Mini App deep links and be tested with BotFather configuration; a website URL is not equivalent.
+- Root sections and action sheets have different navigation semantics. Do not apply bottom-sheet transitions to primary sections.
+- Avoid broad refactors without regression tests. Compare all changed API contracts with every frontend caller.
+- Before editing, compare the supplied archive with GitHub `main`. Never silently overwrite a newer source with an older ZIP.
+- No release is “verified” until static checks, API/DB tests, and real-device scenarios are reported separately.

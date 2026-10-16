@@ -1,21 +1,28 @@
 # Project context
 
-## Подтверждённая структура
-- `bot.py`: единый Python entry point; FastAPI API и Telegram bot на aiogram.
-- `dist/index.html`: фактический production frontend; HTML, CSS и JavaScript встроены в один файл.
-- `src/main.jsx` и `src/style.css`: присутствуют, но минимальны и не являются текущим источником production UI.
-- `database/schema.sql`: PostgreSQL/Supabase схема.
-- `requirements.txt`: aiogram, FastAPI, uvicorn, asyncpg, httpx, python-multipart.
-- `package.json`: `build` печатает, что production build уже находится в `dist/index.html`; полноценной frontend-сборки нет.
+## Confirmed structure and entry points
+- `bot.py`: Python entry point containing FastAPI routes and an aiogram Telegram bot.
+- `dist/index.html`: production frontend source, with inline CSS and JavaScript.
+- `src/main.jsx` and `src/style.css`: minimal files; they are not the current production UI entry point.
+- `database/schema.sql`: PostgreSQL schema; some schema initialization also exists in `bot.py`.
+- `requirements.txt`: pinned Python dependencies.
+- `package.json`: no real frontend bundling pipeline; `build` is informational.
+- `tests/test_quality_regressions.py`: static regression assertions.
 
-## Backend / storage
-- PostgreSQL доступен через `asyncpg`; pool настроен с `statement_cache_size=0` для совместимости с pooler.
-- В `bot.py` обязательны `BOT_TOKEN`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; `WEB_APP_URL` имеет default; `ADMIN_TELEGRAM_IDS` опционален.
-- Видео хранится через Supabase Storage; точный статус реального bucket и credentials не проверяется локальным аудитом.
-- Telegram initData validation и API authorization реализованы в `bot.py`; нужно тестировать и негативные сценарии.
+## Stack and data
+- FastAPI + asyncpg + PostgreSQL/Supabase database.
+- aiogram Telegram bot in the same process.
+- Supabase Storage for uploaded video files.
+- Telegram WebApp `initData` is sent in `X-Telegram-Init-Data` and must be verified by backend.
+- Required env names: `BOT_TOKEN`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; `WEB_APP_URL` has a default; `ADMIN_TELEGRAM_IDS` is optional.
+- asyncpg pool sets `statement_cache_size=0` for transaction pooler compatibility.
 
-## Текущие ограничения
-- Frontend — большой single-file UI; любые замены должны проверять все повторные CSS overrides и динамические template strings.
-- Нет полноценного frontend bundler/test runner в `package.json`.
-- Локальный синтаксис не подтверждает работу в Telegram WebView или на Railway.
-- `video_watch_history` и endpoint истории есть в схеме/backend; продуктово UI истории не должен отображаться. Не удалять таблицу без отдельной миграции/согласования.
+## Version provenance warning
+The ZIP attached for the 2026-10-16 audit does not match current GitHub `main` for the main files. Compare file/blob hashes before uploading this archive; changes in this archive were made against the supplied ZIP, not committed to GitHub.
+
+## Constraints and unknowns
+- Production credentials, actual Storage bucket, BotFather Main Mini App settings, Railway deployment and live database were not accessed or changed.
+- No real Telegram Android test was performed.
+- `video_watch_history` and its API may remain for backward compatibility, but the history UI is removed by product decision.
+- Comments currently support plain comments only, not threaded replies.
+- Thumbnail display depends on an actual `thumbnail_url`; no thumbnail generation job is included.
