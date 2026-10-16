@@ -850,58 +850,31 @@ async def get_history(request: Request, offset: int = 0, limit: int = 60):
 async def toggle_like(video_id: int, request: Request):
     user = await get_authenticated_user(request)
     user_id = int(user["id"])
+    desired = None
+    if "application/json" in request.headers.get("content-type", ""):
+        try:
+            payload = await request.json()
+            if isinstance(payload, dict) and isinstance(payload.get("liked"), bool):
+                desired = payload["liked"]
+        except Exception:
+            raise HTTPException(status_code=400, detail="Некорректное состояние лайка")
     pool = await get_db_pool()
-
     async with pool.acquire() as connection:
-        existing = await connection.fetchval(
-            """
-            select 1 from video_likes
-            where video_id = $1 and user_id = $2
-            """,
-            video_id,
-            user_id,
-        )
-
-        if existing:
-            await connection.execute(
-                "delete from video_likes where video_id = $1 and user_id = $2",
-                video_id,
-                user_id,
-            )
-            liked = False
-        else:
-            await connection.execute(
-                """
-                insert into video_likes (video_id, user_id)
-                values ($1, $2)
-                on conflict do nothing
-                """,
-                video_id,
-                user_id,
-            )
-            liked = True
-
-        row = await connection.fetchrow(
-            """
-            update videos
-            set likes_count = (
-                select count(*) from video_likes where video_id = $1
-            )
-            where id = $1
-            returning likes_count, user_id
-            """,
-            video_id,
-        )
-        if row and liked and int(row["user_id"]) != user_id:
-            await connection.execute(
-                "insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'like',$3)",
-                int(row["user_id"]), user_id, video_id
-            )
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Видео не найдено")
-
-    return {"ok": True, "liked": liked, "likes_count": row["likes_count"]}
+        async with connection.transaction():
+            video = await connection.fetchrow("select id,user_id from videos where id=$1 and not is_deleted for update", video_id)
+            if not video:
+                raise HTTPException(status_code=404, detail="Видео не найдено")
+            existing = bool(await connection.fetchval("select 1 from video_likes where video_id=$1 and user_id=$2", video_id, user_id))
+            target = (not existing) if desired is None else desired
+            if target and not existing:
+                await connection.execute("insert into video_likes(video_id,user_id) values($1,$2) on conflict do nothing", video_id, user_id)
+            elif not target and existing:
+                await connection.execute("delete from video_likes where video_id=$1 and user_id=$2", video_id, user_id)
+            count = await connection.fetchval("select count(*) from video_likes where video_id=$1", video_id)
+            await connection.execute("update videos set likes_count=$2 where id=$1", video_id, count)
+            if target and not existing and int(video["user_id"]) != user_id:
+                await connection.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'like',$3)", int(video["user_id"]), user_id, video_id)
+    return {"ok": True, "liked": target, "likes_count": int(count or 0)}
 
 
 @app.post("/api/videos/{video_id}/save")
@@ -962,12 +935,16 @@ async def get_following(user_id: int, request: Request, limit: int = 100):
 
 @app.delete("/api/comments/{comment_id}")
 async def delete_comment(comment_id: int, request: Request):
-    user=await get_authenticated_user(request); pool=await get_db_pool()
+    user = await get_authenticated_user(request)
+    pool = await get_db_pool()
     async with pool.acquire() as connection:
-        row=await connection.fetchrow("delete from comments where id=$1 and user_id=$2 returning video_id", comment_id, int(user["id"]))
-        if not row: raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
-        await connection.execute("update videos set comments_count=greatest(comments_count-1,0) where id=$1", row["video_id"])
-    return {"ok":True,"deleted":True}
+        async with connection.transaction():
+            row = await connection.fetchrow("delete from comments where id=$1 and user_id=$2 returning video_id", comment_id, int(user["id"]))
+            if not row:
+                raise HTTPException(status_code=404, detail="Комментарий не найден или уже удалён")
+            count = await connection.fetchval("select count(*) from comments where video_id=$1", row["video_id"])
+            await connection.execute("update videos set comments_count=$2 where id=$1", row["video_id"], count)
+    return {"ok": True, "deleted": True, "comments_count": int(count or 0)}
 
 @app.get("/api/notifications/unread-count")
 async def unread_notifications(request: Request):
@@ -1089,19 +1066,31 @@ async def get_comments(video_id:int, request:Request):
     return {"ok":True,"comments":[dict(x) for x in rows]}
 
 @app.post("/api/videos/{video_id}/comments")
-async def add_comment(video_id:int, request:Request):
-    user=await get_authenticated_user(request); text=str((await request.json()).get("text","")).strip()[:500]
-    if not text: raise HTTPException(status_code=400,detail="Комментарий не может быть пустым")
-    p=await get_db_pool()
-    async with p.acquire() as c:
-        owner=await c.fetchval("select user_id from videos where id=$1 and not is_deleted",video_id)
-        if owner is None: raise HTTPException(status_code=404,detail="Видео не найдено")
-        blocked=await c.fetchval("select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)",int(user["id"]),int(owner))
-        if blocked: raise HTTPException(status_code=403,detail="Взаимодействие с этим пользователем недоступно")
-        row=await c.fetchrow("insert into comments(video_id,user_id,text) values($1,$2,$3) returning id,text,created_at",video_id,int(user["id"]),text)
-        await c.execute("update videos set comments_count=comments_count+1 where id=$1",video_id)
-        if int(owner)!=int(user["id"]): await c.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)",int(owner),int(user["id"]),video_id)
-    return {"ok":True,"comment":dict(row)}
+async def add_comment(video_id: int, request: Request):
+    user = await get_authenticated_user(request)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректный запрос")
+    text = str((payload or {}).get("text", "")).strip()[:500]
+    if not text:
+        raise HTTPException(status_code=400, detail="Комментарий не может быть пустым")
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            video = await connection.fetchrow("select user_id from videos where id=$1 and not is_deleted for update", video_id)
+            if not video:
+                raise HTTPException(status_code=404, detail="Видео не найдено")
+            owner = int(video["user_id"])
+            blocked = await connection.fetchval("select 1 from user_blocks where (blocker_id=$1 and blocked_id=$2) or (blocker_id=$2 and blocked_id=$1)", int(user["id"]), owner)
+            if blocked:
+                raise HTTPException(status_code=403, detail="Взаимодействие с этим пользователем недоступно")
+            row = await connection.fetchrow("insert into comments(video_id,user_id,text) values($1,$2,$3) returning id,text,created_at", video_id, int(user["id"]), text)
+            count = await connection.fetchval("select count(*) from comments where video_id=$1", video_id)
+            await connection.execute("update videos set comments_count=$2 where id=$1", video_id, count)
+            if owner != int(user["id"]):
+                await connection.execute("insert into notifications(user_id,actor_id,type,video_id) values($1,$2,'comment',$3)", owner, int(user["id"]), video_id)
+    return {"ok": True, "comment": dict(row), "comments_count": int(count or 0)}
 
 @app.post("/api/users/{user_id}/follow")
 async def toggle_follow(user_id:int, request:Request):
