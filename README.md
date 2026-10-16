@@ -1,48 +1,12 @@
-# Telegram Shorts — Stable Social v5
+# Telegram Shorts
 
-Production-ready Telegram Mini App + bot for a vertical short-video feed, with mobile-first UI/UX and reliable panel navigation.
+Telegram Mini App for vertical short videos. The current frontend is served from `dist/index.html`; FastAPI and the aiogram bot are started from `bot.py`.
 
-## Production
+## Required environment
+See `.env.example` for variable names. Keep real tokens and service-role keys in Railway variables, never in Git.
 
-Railway runs the backend with:
+## Run
+Install `requirements.txt`, set required environment variables, then run `python bot.py`. The current `npm run build` command is informational only; it does not compile the frontend.
 
-```bash
-python bot.py
-```
-
-The production Mini App is served directly from `dist/index.html` by the FastAPI app.
-
-## Included
-
-- Telegram WebApp authentication with server-side validation
-- Smooth vertical video feed with autoplay/pause and scroll-snap
-- Recommended / Following switch with stale-request protection
-- Likes, saves, comments, follows and view tracking
-- Saved videos and watch history with vertical viewer
-- Profile, followers/following and profile editing
-- Search for users, hashtags and videos
-- Notifications
-- Reports and moderation endpoints
-- Persistent "Not interested" and "Don't show this author"
-- User blocking and user reports
-- Automatic database/storage initialization
-- `.env.example` included and verified
-- Automatic migration for recommendation/blocking/preference tables
-- Friendly JSON error responses instead of raw FastAPI 500 pages
-
-## Environment
-
-Use `.env.example` as the template for local configuration. Never commit real secrets.
-
-Required Railway variables:
-
-- `BOT_TOKEN`
-- `DATABASE_URL`
-- `WEB_APP_URL`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `ADMIN_TELEGRAM_IDS`
-
-## Important
-
-Do not replace `dist/index.html` with a separate React/Vite build. The current production UI is the tested static Mini App shipped with this archive.
+## Quality rules
+See [`docs/quality/README.md`](docs/quality/README.md) before changing code. Static checks do not replace Telegram Android and production integration tests.

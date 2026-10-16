@@ -518,7 +518,7 @@ async def get_feed(request: Request, mode: str = "recommended", offset: int = 0,
 
         query = f"""
             select
-                v.id, v.user_id, v.video_url, v.caption,
+                v.id, v.user_id, v.video_url, v.thumbnail_url, v.caption,
                 v.views_count, v.likes_count, v.comments_count, v.hashtags, v.created_at,
                 coalesce(u.custom_username,u.username) as username, u.first_name, u.last_name, u.avatar_url,
                 exists(
@@ -576,7 +576,7 @@ async def get_video(video_id: int, request: Request):
     uid = int(user["id"])
     async with pool.acquire() as connection:
         row = await connection.fetchrow("""
-            select v.id,v.user_id,v.video_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
+            select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.views_count,v.likes_count,v.comments_count,v.hashtags,v.created_at,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url,
                    exists(select 1 from video_likes vl where vl.video_id=v.id and vl.user_id=$1) as liked,
                    exists(select 1 from video_saves vs where vs.video_id=v.id and vs.user_id=$1) as saved,
@@ -590,6 +590,25 @@ async def get_video(video_id: int, request: Request):
     if not row:
         raise HTTPException(status_code=404, detail="Видео недоступно")
     return {"ok": True, "video": dict(row)}
+
+
+
+@app.get("/api/videos/{video_id}/share-link")
+async def video_share_link(video_id: int, request: Request):
+    """Return a Telegram Mini App deep link. Main Mini App must be configured in BotFather."""
+    await get_authenticated_user(request)
+    pool = await get_db_pool()
+    async with pool.acquire() as connection:
+        exists = await connection.fetchval("select 1 from videos where id=$1 and not is_deleted", video_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+    try:
+        bot_user = await bot.get_me()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Не удалось получить Telegram-бота")
+    if not bot_user or not bot_user.username:
+        raise HTTPException(status_code=503, detail="У бота не настроено имя пользователя")
+    return {"ok": True, "url": f"https://t.me/{bot_user.username}?startapp=video_{video_id}"}
 
 @app.post("/api/videos/{video_id}/preference")
 async def video_preference(video_id: int, request: Request):
@@ -814,7 +833,7 @@ async def get_history(request: Request, offset: int = 0, limit: int = 60):
     pool=await get_db_pool()
     async with pool.acquire() as connection:
         rows=await connection.fetch(
-            """select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,
+            """select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,
                       v.created_at, wh.watched_seconds, wh.completed, wh.last_watched_at,
                       u.username,u.first_name,u.last_name,u.avatar_url
                from video_watch_history wh
@@ -916,7 +935,7 @@ async def get_saved(request: Request, offset: int = 0, limit: int = 60):
     pool = await get_db_pool()
     async with pool.acquire() as connection:
         rows = await connection.fetch("""
-            select v.id,v.user_id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
+            select v.id,v.user_id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,v.created_at,
                    coalesce(u.custom_username,u.username) as username,u.first_name,u.last_name,u.avatar_url, true as saved
             from video_saves s join videos v on v.id=s.video_id join users u on u.id=v.user_id
             where s.user_id=$1 and not v.is_deleted
@@ -969,7 +988,7 @@ async def get_profile(user_id: int, request: Request):
           (select count(*) from follows f where f.follower_id=u.id) as following_count,
           exists(select 1 from follows f where f.follower_id=$1 and f.following_id=u.id) as following
           from users u where u.id=$2""", int(viewer["id"]), user_id)
-        videos = await connection.fetch("select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,(select count(*) from video_saves s where s.video_id=v.id) as saves_count,v.created_at from videos v where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60", user_id)
+        videos = await connection.fetch("select v.id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,v.comments_count,(select count(*) from video_saves s where s.video_id=v.id) as saves_count,v.created_at from videos v where v.user_id=$1 and not v.is_deleted order by v.created_at desc limit 60", user_id)
     if not user_row: raise HTTPException(status_code=404, detail="Пользователь не найден")
     return {"ok":True,"user":dict(user_row),"videos":[dict(v) for v in videos]}
 
@@ -996,7 +1015,7 @@ async def search(q: str = "", request: Request = None):
             pattern,
         )
         videos = await connection.fetch(
-            """select v.id,v.video_url,v.caption,v.hashtags,v.views_count,v.likes_count,
+            """select v.id,v.video_url,v.thumbnail_url,v.caption,v.hashtags,v.views_count,v.likes_count,
                 u.id as user_id,coalesce(u.custom_username,u.username) as username,u.first_name,u.avatar_url
                from videos v join users u on u.id=v.user_id
                where not v.is_deleted
