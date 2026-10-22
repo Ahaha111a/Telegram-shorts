@@ -56,9 +56,20 @@ create table if not exists comments (
   user_id bigint not null references users(id) on delete cascade,
   text text not null,
   parent_id bigint references comments(id) on delete cascade,
+  is_pinned boolean not null default false,
+  updated_at timestamptz,
   created_at timestamptz not null default now()
 );
 alter table comments add column if not exists parent_id bigint references comments(id) on delete cascade;
+alter table comments add column if not exists is_pinned boolean not null default false;
+alter table comments add column if not exists updated_at timestamptz;
+create table if not exists comment_likes (
+  comment_id bigint not null references comments(id) on delete cascade,
+  user_id bigint not null references users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key(comment_id,user_id)
+);
+create index if not exists idx_comments_parent_id on comments(parent_id);
 create table if not exists follows (
   follower_id bigint not null references users(id) on delete cascade,
   following_id bigint not null references users(id) on delete cascade,
@@ -127,7 +138,6 @@ create index if not exists idx_videos_user_id on videos(user_id);
 create index if not exists idx_video_views_video_id on video_views(video_id);
 create unique index if not exists uq_video_views_user_video on video_views(video_id,user_id) where user_id is not null;
 create index if not exists idx_comments_video_id on comments(video_id);
-create index if not exists idx_comments_parent_created on comments(parent_id,created_at asc);
 create index if not exists idx_video_saves_user_id on video_saves(user_id,created_at desc);
 create index if not exists idx_video_saves_video_id on video_saves(video_id);
 create index if not exists idx_watch_history_user_time on video_watch_history(user_id,last_watched_at desc);
@@ -140,3 +150,14 @@ create index if not exists idx_video_preferences_user_id on video_preferences(us
 create index if not exists idx_hidden_authors_user_id on hidden_authors(user_id,created_at desc);
 create index if not exists idx_user_blocks_blocker_id on user_blocks(blocker_id,created_at desc);
 create index if not exists idx_user_reports_status_created_at on user_reports(status,created_at desc);
+
+-- Durable retry queue for Storage objects whose cleanup failed.
+create table if not exists storage_cleanup_jobs (
+  id bigint generated always as identity primary key,
+  object_path text not null unique,
+  attempts integer not null default 0,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_storage_cleanup_jobs_created_at on storage_cleanup_jobs(created_at);
